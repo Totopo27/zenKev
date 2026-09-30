@@ -1,0 +1,26 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+/**
+ * @file registration.json
+ * Definición del actor JSWindowActor para ser registrado en Zen Browser
+ * (ej. en ZenActorsManager.sys.mjs o vía ChromeUtils.registerWindowActor).
+ */
+
+{
+  "ZenVoiceNav": {
+    "parent": {
+      "esModuleURI": "resource:///actors/ZenVoiceNavParent.sys.mjs"
+    },
+    "child": {
+      "esModuleURI": "resource:///actors/ZenVoiceNavChild.sys.mjs",
+      "events": {}
+    },
+    "allFrames": false,
+    "messageManagerGroups": ["browsers"],
+    "remoteTypes": ["web", "file"],
+    "safeForUntrustedWebProcess": true,
+    "enablePreference": "zen.voicenav.enabled"
+  }
+}

@@ -1,0 +1,17 @@
+# Build artifacts
+/target/
+**/*.exe
+**/*.pdb
+**/*.dll
+**/*.so
+**/*.dylib
+**/*.rlib
+**/*.rmeta
+
+# Node & Temp
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+*.tmp
+*.log

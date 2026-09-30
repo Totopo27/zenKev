@@ -1,0 +1,198 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{box-sizing:border-box}</style></head><body><!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Especificación Técnica: Zen Voice Navigator</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1a1a1a; padding: 24px; max-width: 800px; margin: 0 auto; }
+  h1 { border-bottom: 2px solid #0969da; padding-bottom: 8px; color: #0969da; font-size: 24px; }
+  h2 { border-bottom: 1px solid #d0d7de; padding-bottom: 6px; margin-top: 24px; color: #24292f; font-size: 18px; }
+  h3 { margin-top: 16px; color: #24292f; font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; }
+  th { background-color: #f6f8fa; font-weight: 600; }
+  pre { background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px; font-size: 12px; overflow-x: auto; }
+  code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  .box { background-color: #ddf4ff; border-left: 4px solid #0969da; padding: 10px 14px; margin: 16px 0; border-radius: 0 4px 4px 0; font-size: 13px; }
+  @media print {
+    body { padding: 0; font-size: 12pt; }
+    h1 { font-size: 18pt; }
+    h2 { font-size: 14pt; page-break-after: avoid; }
+    pre, table { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Zen Voice Navigator: Especificación Técnica</h1>
+<p><strong>Objetivo:</strong> Navegación por voz nativa, local, determinista y accesible para personas ciegas sobre <strong>Zen Browser (Gecko)</strong>.</p>
+
+<div class="box">
+  <strong>Premisa Central:</strong> Sustituir la navegación visual tradicional por el Árbol de Accesibilidad (AOM) de Gecko, combinando un Sistema 1 determinista (ModernBERT en CPU sub-40ms) y un Sistema 2 multimodal de contingencia para botones mudos.
+</div>
+
+<h2>1. Comparativa de Componentes y Ecosistema</h2>
+<table>
+  <tr>
+    <th>Componente</th>
+    <th>Opción Adoptada</th>
+    <th>Motivo de Selección</th>
+  </tr>
+  <tr>
+    <td><strong>Detección de Voz (VAD)</strong></td>
+    <td>Silero VAD (ONNX C++)</td>
+    <td>&lt;5 MB en RAM, latencia &lt;20 ms, corte inmediato de audio (barge-in).</td>
+  </tr>
+  <tr>
+    <td><strong>Transcripción (STT)</strong></td>
+    <td>Whisper.cpp (tiny.en / base)</td>
+    <td>Streaming optimizado para CPU vía instrucciones AVX2 / NEON.</td>
+  </tr>
+  <tr>
+    <td><strong>Sistema 1 (Decisión)</strong></td>
+    <td>ModernBERT NLI (ONNX Runtime)</td>
+    <td>Inferencia de paso único (single forward pass) en 15–35 ms; coste $0.</td>
+  </tr>
+  <tr>
+    <td><strong>Sistema 2 (Contingencia)</strong></td>
+    <td>SmolVLM / Moondream2 (4-bit)</td>
+    <td>Inspección de recortes (128x128 px) de iconos sin texto ARIA.</td>
+  </tr>
+  <tr>
+    <td><strong>Motor Web Base</strong></td>
+    <td>Zen Browser (Gecko AOM)</td>
+    <td>Acceso directo a <code>nsIAccessibilityService</code> sin parsear HTML visual.</td>
+  </tr>
+</table>
+
+<h2>2. Presupuesto de Latencia (CPU-First)</h2>
+<table>
+  <tr>
+    <th>Fase</th>
+    <th>Mecanismo</th>
+    <th>Tiempo Estimado</th>
+  </tr>
+  <tr>
+    <td>Detección de Habla</td>
+    <td>Silero VAD</td>
+    <td>10 – 20 ms</td>
+  </tr>
+  <tr>
+    <td>Transcripción Streaming</td>
+    <td>Whisper.cpp (CPU)</td>
+    <td>120 – 180 ms</td>
+  </tr>
+  <tr>
+    <td>Poda de Nodos AOM</td>
+    <td>Gecko AOM Filter</td>
+    <td>5 – 15 ms</td>
+  </tr>
+  <tr>
+    <td>Evaluación Sistema 1</td>
+    <td>ModernBERT ONNX</td>
+    <td>15 – 35 ms</td>
+  </tr>
+  <tr>
+    <td>Ejecución de Acción</td>
+    <td><code>doDefaultAction()</code> nativo</td>
+    <td>5 – 10 ms</td>
+  </tr>
+  <tr>
+    <td><strong>Total Vía Rápida</strong></td>
+    <td><strong>Ciclo Completo Reactivo</strong></td>
+    <td><strong>~155 – 260 ms</strong></td>
+  </tr>
+  <tr>
+    <td><em>Contingencia Sistema 2</em></td>
+    <td><em>Recorte gráfico + SmolVLM</em></td>
+    <td><em>+200 – 350 ms (solo si falla S1)</em></td>
+  </tr>
+</table>
+
+<h2>3. Contrato de Comunicación IPC (JSON-RPC)</h2>
+<p>Intercambio entre el proceso demonio en Rust (<code>zen-voice-engine</code>) y Zen Browser:</p>
+
+<h3>Petición de Clasificación (Zen &rarr; Motor Rust)</h3>
+<pre><code>{
+  "jsonrpc": "2.0",
+  "id": 101,
+  "method": "classify_intent",
+  "params": {
+    "transcript": "abrir configuración",
+    "candidates": [
+      { "id": "acc-1", "role": "link", "name": "Inicio" },
+      { "id": "acc-2", "role": "button", "name": "Configuración" },
+      { "id": "acc-3", "role": "button", "name": "Cerrar sesión" }
+    ]
+  }
+}</code></pre>
+
+<h3>Respuesta de Decisión Tipada (Motor Rust &rarr; Zen)</h3>
+<pre><code>{
+  "jsonrpc": "2.0",
+  "id": 101,
+  "result": {
+    "matched_id": "acc-2",
+    "action": "click",
+    "confidence": 0.96,
+    "fallback_required": false
+  }
+}</code></pre>
+
+<h2>4. Extractor Nativo de Accesibilidad en Zen (.mjs)</h2>
+<pre><code>export class ZenAOMCollector {
+  constructor() {
+    this.accService = Cc["@mozilla.org/accessibilityService;1"]
+                        .getService(Ci.nsIAccessibilityService);
+  }
+
+  getInteractiveCandidates(contentDoc) {
+    const rootAcc = this.accService.getAccessibleFor(contentDoc);
+    const candidates = [];
+
+    this._traverse(rootAcc, (accNode) => {
+      const role = accNode.role;
+      if (this._isActionableRole(role)) {
+        candidates.push({
+          id: accNode.uniqueID,
+          role: this.accService.getStringRole(role),
+          name: accNode.name?.trim() || "",
+          description: accNode.description?.trim() || ""
+        });
+      }
+    });
+
+    return candidates;
+  }
+
+  _isActionableRole(role) {
+    const actionable = [
+      Ci.nsIAccessibleRole.ROLE_PUSHBUTTON,
+      Ci.nsIAccessibleRole.ROLE_LINK,
+      Ci.nsIAccessibleRole.ROLE_ENTRY,
+      Ci.nsIAccessibleRole.ROLE_CHECKBUTTON
+    ];
+    return actionable.includes(role);
+  }
+
+  _traverse(node, callback) {
+    if (!node) return;
+    callback(node);
+    let child = node.firstChild;
+    while (child) {
+      this._traverse(child, callback);
+      child = child.nextSibling;
+    }
+  }
+}</code></pre>
+
+<h2>5. Reglas de Interacción para Usuarios Ciegos</h2>
+<ul>
+  <li><strong>Barge-In Inmediato:</strong> En cuanto Silero VAD detecta sonido del usuario, silencia la salida de audio del sintetizador en &le; 20 ms.</li>
+  <li><strong>Gramática Concisa:</strong> Respuestas breves de estado ("Página cargada, 4 campos") sin frases de cortesía innecesarias.</li>
+  <li><strong>Independencia Visual:</strong> Las acciones se ejecutan por foco de accesibilidad nativo, no simulando clics de ratón sobre coordenadas arbitrarias.</li>
+</ul>
+
+</body>
+</html>
+<script>try{}catch(e){document.body.innerHTML+='<div style="color:red;background:#ffe6e6;padding:10px;margin-top:20px;border-radius:4px;border:1px solid red;"><strong>Runtime Error:</strong> '+e.message+'</div>'}</script></body></html>
