@@ -120,6 +120,16 @@ export class ZenVoiceEngineClient {
             if (parsed.voice_command || parsed.type === "transcription_ready") {
               const transcript = parsed.transcript || parsed.voice_command || parsed.text;
               logDebug(`Comando en vivo recibido: "${transcript}"`);
+
+              // Notificar al HUD nativo de la ventana activa
+              const activeWin = Services.wm?.getMostRecentWindow("navigator:browser");
+              if (activeWin && typeof Services.zenShowVoiceHUD === "function") {
+                Services.zenShowVoiceHUD(activeWin, {
+                  success: true,
+                  transcript,
+                  label: "Procesando voz...",
+                });
+              }
               try {
                 const windows = Services.wm.getEnumerator("navigator:browser");
                 let dispatched = false;

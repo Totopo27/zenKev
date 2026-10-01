@@ -121,6 +121,100 @@ function openUrlInBrowser(topWin, url) {
 }
 
 /**
+ * Renderiza un HUD flotante nativo a nivel de ventana del navegador (Chrome Window).
+ * Inmune a problemas de z-index, iframes o páginas especiales (about:newtab, etc.).
+ */
+export function showNativeChromeHUD(topWin, { success = true, transcript = "", label = "", latencyMs = null }) {
+  const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
+  if (!win || !win.document) return;
+
+  const doc = win.document;
+  let hud = doc.getElementById("zenkev-native-chrome-hud");
+  if (!hud) {
+    hud = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+    hud.id = "zenkev-native-chrome-hud";
+    hud.style.cssText = `
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-14px);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 18px;
+      border-radius: 9999px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.24s ease, box-shadow 0.24s ease;
+    `;
+
+    const parentContainer = doc.getElementById("browser") || doc.documentElement;
+    parentContainer.appendChild(hud);
+  }
+
+  // Sanitización y actualización estructurada con DOM nodes (cero innerHTML)
+  hud.textContent = "";
+
+  // Borde y sombra temáticos dinámicos
+  const glowColor = success ? "rgba(16, 185, 129, 0.4)" : "rgba(245, 158, 11, 0.4)";
+  hud.style.borderColor = glowColor;
+  hud.style.boxShadow = `0 14px 34px rgba(0, 0, 0, 0.45), 0 0 16px ${glowColor}`;
+
+  // Icono indicador
+  const icon = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  icon.style.cssText = "font-size: 16px; display: flex; align-items: center; justify-content: center;";
+  icon.textContent = success ? "🎤" : "⚠️";
+  hud.appendChild(icon);
+
+  // Columna de texto
+  const textCol = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  textCol.style.cssText = "display: flex; flex-direction: column; line-height: 1.25;";
+
+  const titleRow = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  titleRow.style.cssText = "font-weight: 600; color: #ffffff; white-space: nowrap;";
+  titleRow.textContent = transcript ? `"${transcript}"` : (label || "Comando procesado");
+  textCol.appendChild(titleRow);
+
+  if (label) {
+    const detailRow = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+    detailRow.style.cssText = `font-size: 11px; color: ${success ? "#34d399" : "#fbbf24"}; white-space: nowrap;`;
+    const latencyStr = latencyMs != null ? ` (${latencyMs.toFixed(1)}ms)` : "";
+    detailRow.textContent = `${label}${latencyStr}`;
+    textCol.appendChild(detailRow);
+  }
+
+  hud.appendChild(textCol);
+
+  // Animación de entrada fluida
+  hud.style.opacity = "1";
+  hud.style.transform = "translateX(-50%) translateY(0)";
+
+  // Limpiar temporizador previo
+  if (win._zenkevChromeHudTimeout) {
+    win.clearTimeout(win._zenkevChromeHudTimeout);
+  }
+  win._zenkevChromeHudTimeout = win.setTimeout(() => {
+    if (hud) {
+      hud.style.opacity = "0";
+      hud.style.transform = "translateX(-50%) translateY(-14px)";
+    }
+  }, 2800);
+}
+
+// Exponer en Services para consumo global en Gecko
+Services.zenShowVoiceHUD = showNativeChromeHUD;
+
+/**
  * Ejecuta comandos globales de nivel de navegador (historial, pestañas, scroll, búsqueda, URLs).
  */
 export async function executeGlobalVoiceCommand(transcript, topWin, actor = null) {
@@ -132,6 +226,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   const gBrowser = win.gBrowser;
 
   function notifyHUD(success, label) {
+    showNativeChromeHUD(win, { success, transcript, label, latencyMs: 0.1 });
     if (actor?.sendAsyncMessage) {
       try {
         actor.sendAsyncMessage("ZenVoiceNav:LogCommand", {
@@ -293,7 +388,80 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "web_search", query };
   }
 
-  // 6. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
+  // 6. Modos Nativos de Zen y Firefox
+  if (/^modo\s+lectura$|^activar\s+lectura$|^vista\s+lectura$/i.test(text)) {
+    logDebug("Comando global detectado: Modo lectura");
+    try {
+      const browser = gBrowser?.selectedBrowser;
+      if (browser) {
+        if (win.AboutReaderParent?.toggleReaderMode) {
+          win.AboutReaderParent.toggleReaderMode(browser);
+        } else if (browser.toggleReaderMode) {
+          browser.toggleReaderMode();
+        }
+      }
+    } catch (_) {}
+    notifyHUD(true, "Modo lectura");
+    return { handled: true, action: "toggle_reader_mode" };
+  }
+
+  if (/^pantalla\s+completa$|^pantalla\s+entera$|^salir\s+de\s+pantalla\s+completa$/i.test(text)) {
+    logDebug("Comando global detectado: Pantalla completa");
+    if (typeof win.BrowserFullScreen === "function") {
+      win.BrowserFullScreen();
+    }
+    notifyHUD(true, "Pantalla completa");
+    return { handled: true, action: "toggle_fullscreen" };
+  }
+
+  if (/^duplicar\s+pesta[nñ]a$/i.test(text)) {
+    logDebug("Comando global detectado: Duplicar pestaña");
+    if (gBrowser?.duplicateTab && gBrowser?.selectedTab) {
+      gBrowser.duplicateTab(gBrowser.selectedTab);
+    }
+    notifyHUD(true, "Duplicar pestaña");
+    return { handled: true, action: "duplicate_tab" };
+  }
+
+  if (/^(?:silenciar|mutear)(?:\s+pesta[nñ]a)?$|^(?:activar|desmutear)\s+(?:sonido|audio)$/i.test(text)) {
+    logDebug("Comando global detectado: Silenciar/Activar audio de pestaña");
+    if (gBrowser?.selectedTab) {
+      gBrowser.toggleMuteTab(gBrowser.selectedTab);
+    }
+    notifyHUD(true, "Audio de pestaña alternado");
+    return { handled: true, action: "toggle_mute_tab" };
+  }
+
+  if (/^(?:abrir\s+)?descargas$/i.test(text)) {
+    logDebug("Comando global detectado: Abrir descargas");
+    if (typeof win.BrowserDownloadsUI === "function") {
+      win.BrowserDownloadsUI();
+    } else {
+      openUrlInBrowser(win, "about:downloads");
+    }
+    notifyHUD(true, "Descargas");
+    return { handled: true, action: "open_downloads" };
+  }
+
+  if (/^(?:abrir\s+)?historial$/i.test(text)) {
+    logDebug("Comando global detectado: Abrir historial");
+    openUrlInBrowser(win, "about:history");
+    notifyHUD(true, "Historial");
+    return { handled: true, action: "open_history" };
+  }
+
+  if (/^(?:abrir\s+)?configuraci[oó]n$|^(?:abrir\s+)?ajustes$/i.test(text)) {
+    logDebug("Comando global detectado: Abrir configuración");
+    if (typeof win.openPreferences === "function") {
+      win.openPreferences();
+    } else {
+      openUrlInBrowser(win, "about:preferences");
+    }
+    notifyHUD(true, "Configuración");
+    return { handled: true, action: "open_preferences" };
+  }
+
+  // 7. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
   const navMatch = text.match(/^(?:ir\s+a|abrir|navegar\s+a|entrar\s+a)\s+(.+)$/i);
   if (navMatch && navMatch[1]) {
     const target = navMatch[1].trim();
@@ -535,6 +703,11 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
 
     if (candidates.length === 0) {
       logDebug(`Sin candidatos en pantalla. Abortando.`);
+      showNativeChromeHUD(topWin, {
+        success: false,
+        transcript,
+        label: "Sin elementos interactivos en pantalla",
+      });
       try {
         this.sendAsyncMessage("ZenVoiceNav:LogCommand", {
           transcript,
@@ -556,7 +729,13 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
     const decision = await engine.classify(transcript, candidates, 10);
     logDebug(`Decisión de Rust: matched_id=${decision.matched_id}, action=${decision.action}, conf=${decision.confidence}`);
 
-    // Notificar al Child para mostrar feedback visual (HUD + log de página)
+    // Notificar al Chrome HUD nativo y al Child
+    showNativeChromeHUD(topWin, {
+      success: !!decision.matched_id,
+      transcript,
+      label: decision.matched_id ? `Acción: ${decision.action}` : "Sin coincidencia en página",
+      latencyMs: decision.latency_ms,
+    });
     try {
       this.sendAsyncMessage("ZenVoiceNav:LogCommand", {
         transcript,
