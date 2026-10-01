@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZenKev (Zen Voice Navigator) - Entorno de Pruebas</title>
+  <style>
+    :root {
+      --bg: #0f141c;
+      --card-bg: #18202c;
+      --card-border: #283548;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 30px 20px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(59, 130, 246, 0.2);
+      color: var(--accent);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .card h2 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    button, .btn {
+      background: #242f40;
+      color: #fff;
+      border: 1px solid var(--card-border);
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+
+    button:hover, .btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    button.primary, .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    button.primary:hover, .btn.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    button.danger {
+      background: #ef4444;
+      border-color: #ef4444;
+    }
+
+    button.danger:hover {
+      background: #dc2626;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], input[type="search"] {
+      width: 100%;
+      background: #111822;
+      border: 1px solid var(--card-border);
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    input[type="text"]:focus, input[type="search"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .checkbox-group {
+      display: flex;
+      gap: 20px;
+      margin-top: 10px;
+    }
+
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .log-terminal {
+      background: #090d14;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: #38bdf8;
+      height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .instructions {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 25px;
+    }
+
+    .instructions h3 {
+      color: var(--success);
+      margin-bottom: 10px;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .instructions ul {
+      margin-left: 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .instructions li {
+      margin-bottom: 6px;
+    }
+
+    .kbd {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #334155;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">🚀 Zen Browser Native Voice Engine</div>
+      <h1>zenKev Navigator - Panel de Pruebas</h1>
+      <p class="subtitle">Prueba la navegación por voz, la extracción AOM y el motor de inferencia en Rust</p>
+    </header>
+
+    <div class="instructions">
+      <h3>🎙️ Navegación 100% Manos Libres con Micrófono Real</h3>
+      <ul>
+        <li><strong>Control por Voz Real:</strong> El servicio <code>zen_live_mic.py</code> escucha tu micrófono físico (Logitech C925e o auriculares) en segundo plano. En cuanto hablas en español, transcribe y envía el comando automáticamente a Zen Browser. ¡No necesitas tocar el teclado ni el ratón!</li>
+        <li><strong>Comandos que puedes decir ahora mismo en voz alta:</strong> <em>"abrir configuración"</em>, <em>"guardar cambios"</em>, <em>"cancelar"</em>, <em>"buscar"</em>, <em>"cerrar sesión"</em>, <em>"inicio"</em>.</li>
+        <li><strong>Atajo visual opcional:</strong> Presiona <span class="kbd">F2</span> (o <span class="kbd">Ctrl + Shift + Espacio</span> / <span class="kbd">Alt + Shift + V</span>) para encender/apagar los badges numéricos visuales estilo Vimium sobre cada elemento.</li>
+      </ul>
+    </div>
+
+    <div class="grid">
+      <!-- Acciones de Navegación -->
+      <div class="card">
+        <h2>🧭 Navegación & Acciones</h2>
+        <div class="button-group">
+          <button class="primary" onclick="logAction('Inicio')">🏠 Inicio</button>
+          <button onclick="logAction('Configuración')">⚙️ Configuración</button>
+          <button onclick="logAction('Descargas')">📥 Descargas</button>
+          <button onclick="logAction('Historial')">🕒 Historial</button>
+          <button onclick="logAction('Wikipedia')">🌐 Wikipedia</button>
+        </div>
+        <div class="button-group">
+          <button onclick="logAction('Guardar cambios')">💾 Guardar cambios</button>
+          <button onclick="logAction('Cancelar')">❌ Cancelar</button>
+          <button class="danger" onclick="logAction('Cerrar sesión')">🚪 Cerrar sesión</button>
+        </div>
+      </div>
+
+      <!-- Formularios & Búsqueda -->
+      <div class="card">
+        <h2>🔍 Búsqueda y Campos</h2>
+        <div class="form-group">
+          <label for="search-input">Campo de Búsqueda Global</label>
+          <input type="search" id="search-input" placeholder="Escribe o pide por voz 'buscar'..." onfocus="logAction('Enfocado campo de búsqueda')">
+        </div>
+        <div class="form-group">
+          <label for="username-input">Nombre de Usuario</label>
+          <input type="text" id="username-input" placeholder="Pide por voz 'nombre de usuario'..." onfocus="logAction('Enfocado campo de usuario')">
+        </div>
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="chk-dark" checked onchange="logAction('Modo oscuro toggle')"> Modo Oscuro</label>
+          <label><input type="checkbox" id="chk-auto" onchange="logAction('Auto-guardado toggle')"> Auto-guardado</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Registro de Actividad -->
+    <div class="card">
+      <h2>📊 Registro de Eventos en Tiempo Real</h2>
+      <div id="event-log" class="log-terminal">Listo. Esperando comandos o interacciones...</div>
+      <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+        <button onclick="document.getElementById('event-log').textContent = 'Registro limpiado.'">Limpiar log</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function logAction(actionName) {
+      const log = document.getElementById("event-log");
+      const time = new Date().toLocaleTimeString();
+      log.textContent = `[${time}] Acción ejecutada: "${actionName}"\n` + log.textContent;
+    }
+  </script>
+</body>
+</html>

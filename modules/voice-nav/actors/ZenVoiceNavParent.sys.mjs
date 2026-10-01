@@ -13,16 +13,114 @@
 
 import { ZenVoiceEngineClient } from "resource:///actors/ZenVoiceEngineClient.sys.mjs";
 
+function logDebug(msg) {
+  let isDebug = false;
+  try {
+    isDebug = Services.prefs.getBoolPref("zen.voicenav.debug", false);
+  } catch (_) {}
+
+  if (!isDebug) return;
+
+  const time = new Date().toLocaleTimeString();
+  const line = `[ZenKev:Parent ${time}] ${msg}`;
+  console.log(line);
+
+  try {
+    if (typeof IOUtils !== "undefined" && IOUtils.writeUTF8 && PathUtils?.profileDir) {
+      const logPath = PathUtils.join(PathUtils.profileDir, "zenkev_debug.log");
+      IOUtils.writeUTF8(logPath, line + "\n", { mode: "appendOrCreate" }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
 let gVoiceEngineClient = null;
 
 function getVoiceEngineClient() {
   if (!gVoiceEngineClient) {
     gVoiceEngineClient = new ZenVoiceEngineClient();
+    gVoiceEngineClient.ensureStarted().catch((err) => {
+      console.warn("[ZenVoiceNavParent] No se pudo auto-iniciar el motor de voz:", err);
+    });
   }
   return gVoiceEngineClient;
 }
 
+function getVoiceNavMode(overrideMode = null) {
+  if (overrideMode) return overrideMode;
+  try {
+    return Services.prefs.getStringPref("zen.voicenav.mode");
+  } catch (_) {
+    return "both";
+  }
+}
+
+export function initZenVoiceNav(topWin) {
+  if (!topWin || topWin.gZenVoiceNav) return;
+  topWin.gZenVoiceNav = {
+    getActor: () => topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav"),
+    getCandidates: async (onlyVisible = true) => {
+      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      return actor ? await actor.getCandidates(onlyVisible) : { candidates: [], error: "No actor" };
+    },
+    showOverlay: async () => {
+      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      if (!actor) return { success: false, error: "No actor" };
+      const r = await actor.getCandidates(true);
+      return await actor.showVisualOverlay(r.candidates || []);
+    },
+    hideOverlay: async () => {
+      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      return actor ? await actor.hideVisualOverlay() : { success: false };
+    },
+    processCommand: async (transcript) => {
+      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      return actor ? await actor.processVoiceCommand(transcript) : { success: false, error: "No actor" };
+    },
+    toggleOverlay: async () => {
+      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      if (!actor) return;
+      if (topWin._zenVoiceNavOverlayActive) {
+        topWin._zenVoiceNavOverlayActive = false;
+        await actor.hideVisualOverlay();
+      } else {
+        topWin._zenVoiceNavOverlayActive = true;
+        const r = await actor.getCandidates(true);
+        await actor.showVisualOverlay(r.candidates || []);
+      }
+    }
+  };
+
+  topWin.addEventListener("keydown", (e) => {
+    // Atajos no conflictivos con Zen Browser ni Windows:
+    // 1. F2 (tecla única rápida)
+    // 2. Ctrl + Shift + Espacio (estilo asistente manos libres)
+    // 3. Alt + Shift + V (Voice)
+    const isF2 = e.key === "F2";
+    const isCtrlShiftSpace = e.ctrlKey && e.shiftKey && (e.key === " " || e.code === "Space");
+    const isAltShiftV = e.altKey && e.shiftKey && e.key.toLowerCase() === "v";
+
+    if (isF2 || isCtrlShiftSpace || isAltShiftV) {
+      e.preventDefault();
+      e.stopPropagation();
+      topWin.gZenVoiceNav.toggleOverlay();
+    }
+  }, { capture: true });
+
+  console.log("[ZenKev] Inicializado con éxito. Alternar capa visual con F2, Ctrl+Shift+Espacio o Alt+Shift+V.");
+  getVoiceEngineClient();
+}
+
 export class ZenVoiceNavParent extends JSWindowActorParent {
+  constructor() {
+    super();
+    try {
+      const topWin = this.browsingContext?.topChromeWindow;
+      if (topWin) {
+        initZenVoiceNav(topWin);
+      }
+    } catch (_) {}
+  }
+
   /**
    * Obtiene los candidatos interactivos de la pestaña actual.
    * @param {boolean} onlyVisible - Si es true, poda elementos fuera del viewport.
@@ -43,7 +141,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    * @param {string} mode - "screen-reader" | "visual-overlay" | "both"
    */
   async executeAction(targetId, actionIndex = 0, mode = null) {
-    const resolvedMode = mode || Services.prefs.getStringPref("zen.voicenav.mode", "screen-reader");
+    const resolvedMode = getVoiceNavMode(mode);
     try {
       return await this.sendQuery("ZenVoiceNav:ExecuteAction", {
         targetId: String(targetId),
@@ -114,13 +212,28 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    * @param {string} transcript - Texto del comando de voz.
    */
   async processVoiceCommand(transcript) {
-    const mode = Services.prefs.getStringPref("zen.voicenav.mode", "screen-reader");
+    const mode = getVoiceNavMode();
+    logDebug(`Iniciando processVoiceCommand: "${transcript}", modo: ${mode}`);
 
     // 1. Obtener candidatos interactivos
-    const candidatesRes = await this.getCandidates(true);
-    const candidates = candidatesRes.candidates || [];
+    let candidates = [];
+    try {
+      const candidatesRes = await this.getCandidates(true);
+      candidates = candidatesRes?.candidates || [];
+      logDebug(`getCandidates retornó ${candidates.length} elementos`);
+    } catch (e) {
+      logDebug(`Error en getCandidates: ${e}`);
+    }
 
     if (candidates.length === 0) {
+      logDebug(`Sin candidatos en pantalla. Abortando.`);
+      try {
+        this.sendAsyncMessage("ZenVoiceNav:LogCommand", {
+          transcript,
+          success: false,
+          reason: "No hay elementos interactivos en pantalla",
+        });
+      } catch (_) {}
       return { success: false, reason: "No hay elementos accionables en pantalla" };
     }
 
@@ -130,19 +243,31 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
     }
 
     // 3. Consultar al motor en Rust
+    logDebug(`Consultando clasificación al motor Rust...`);
     const engine = getVoiceEngineClient();
     const decision = await engine.classify(transcript, candidates, 10);
+    logDebug(`Decisión de Rust: matched_id=${decision.matched_id}, action=${decision.action}, conf=${decision.confidence}`);
+
+    // Notificar al Child para mostrar feedback visual (HUD + log de página)
+    try {
+      this.sendAsyncMessage("ZenVoiceNav:LogCommand", {
+        transcript,
+        success: !!decision.matched_id,
+        decision,
+      });
+    } catch (_) {}
 
     // 4. Si requiere fallback a Sistema 2 (botón mudo), capturar recorte
     if (decision.fallback_to_vlm && decision.matched_id) {
       console.log("[ZenVoiceNavParent] Activando Sistema 2 para botón mudo ID:", decision.matched_id);
       const crop = await this.captureNodeCrop(decision.matched_id);
-      // Aquí se enviaría el crop al vlm_engine si no estuviese resuelto por S1
     }
 
     // 5. Ejecutar la acción si hubo un match con confianza suficiente
     if (decision.matched_id) {
+      logDebug(`Ejecutando acción en nodo ID ${decision.matched_id}...`);
       const actionResult = await this.executeAction(decision.matched_id, 0, mode);
+      logDebug(`Resultado de executeAction: ${JSON.stringify(actionResult)}`);
       return {
         success: true,
         matchedId: decision.matched_id,
@@ -153,6 +278,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       };
     }
 
+    logDebug(`No se identificó acción con confianza suficiente.`);
     return {
       success: false,
       reason: "No se identificó una acción con suficiente confianza",
@@ -166,7 +292,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    * @param {string} mode - "screen-reader" | "visual-overlay" | "both"
    */
   async focusTarget(targetId, mode = null) {
-    const resolvedMode = mode || Services.prefs.getStringPref("zen.voicenav.mode", "screen-reader");
+    const resolvedMode = getVoiceNavMode(mode);
     try {
       return await this.sendQuery("ZenVoiceNav:FocusTarget", {
         targetId: String(targetId),
@@ -177,4 +303,17 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       return { success: false, error: e.message };
     }
   }
+
+  receiveMessage(message) {
+    if (message.name === "ZenVoiceNav:Init") {
+      getVoiceEngineClient();
+      return { ok: true };
+    }
+  }
 }
+
+try {
+  if (typeof window !== "undefined" && window.document) {
+    initZenVoiceNav(window);
+  }
+} catch (_) {}

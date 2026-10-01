@@ -37,6 +37,14 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
    * Manejador de eventos del ciclo de vida de la página.
    * Limpia el caché de nodos si el documento se descarga o navega.
    */
+  handleEvent(event) {
+    if (event.type === "DOMContentLoaded" || event.type === "pageshow") {
+      try {
+        this.sendAsyncMessage("ZenVoiceNav:Init", {});
+      } catch (_) {}
+    }
+  }
+
   didDestroy() {
     this.#hideVisualOverlay();
     this.#nodeCache.clear();
@@ -73,6 +81,12 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       case "ZenVoiceNav:CaptureNodeCrop":
         return this.#captureNodeCrop(message.data?.targetId);
 
+      case "ZenVoiceNav:LogCommand": {
+        const { transcript, success, decision, reason } = message.data || {};
+        this.#displayVoiceFeedback(transcript, success, decision, reason);
+        return { success: true };
+      }
+
       case "ZenVoiceNav:ClearCache":
         this.#nodeCache.clear();
         return { success: true };
@@ -87,13 +101,8 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
    */
   #collectCandidates(onlyVisible = true) {
     const doc = this.document;
-    if (!doc || !this.accService) {
-      return { candidates: [], error: "Documento o nsIAccessibilityService no disponible" };
-    }
-
-    const rootAcc = this.accService.getAccessibleFor(doc);
-    if (!rootAcc) {
-      return { candidates: [], error: "No se pudo obtener el nodo AOM raíz" };
+    if (!doc) {
+      return { candidates: [], error: "Documento no disponible" };
     }
 
     this.#nodeCache.clear();
@@ -102,34 +111,84 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
     const viewportWidth = this.contentWindow.innerWidth;
     const viewportHeight = this.contentWindow.innerHeight;
 
-    this.#traverseAOM(rootAcc, (accNode) => {
-      const role = accNode.role;
-      if (!this.#isActionableRole(role)) {
-        return;
+    let rootAcc = null;
+    try {
+      if (this.accService) {
+        rootAcc = this.accService.getAccessibleFor(doc);
       }
+    } catch (_) {}
 
-      // Obtener coordenadas en píxeles CSS para poda y para Sistema 2 (VLM)
-      const bounds = this.#getNodeBounds(accNode);
-      const isVisible = this.#isIntersectingViewport(bounds, viewportWidth, viewportHeight);
+    if (rootAcc) {
+      this.#traverseAOM(rootAcc, (accNode) => {
+        const role = accNode.role;
+        if (!this.#isActionableRole(role)) {
+          return;
+        }
 
-      if (onlyVisible && !isVisible) {
-        return;
-      }
+        // Obtener coordenadas en píxeles CSS para poda y para Sistema 2 (VLM)
+        const bounds = this.#getNodeBounds(accNode);
+        const isVisible = this.#isIntersectingViewport(bounds, viewportWidth, viewportHeight);
 
-      const id = accNode.uniqueID;
-      this.#nodeCache.set(String(id), accNode);
+        if (onlyVisible && !isVisible) {
+          return;
+        }
 
-      candidates.push({
-        id: String(id),
-        roleId: role,
-        role: this.accService.getStringRole(role),
-        name: accNode.name?.trim() || "",
-        description: accNode.description?.trim() || "",
-        bounds,
-        isVisible,
-        hasDefaultAction: accNode.actionCount > 0,
+        const id = accNode.uniqueID;
+        this.#nodeCache.set(String(id), accNode);
+
+        candidates.push({
+          id: String(id),
+          role_id: role,
+          roleId: role,
+          role: this.accService.getStringRole(role),
+          name: accNode.name?.trim() || "",
+          description: accNode.description?.trim() || "",
+          bounds,
+          is_visible: isVisible,
+          isVisible,
+          has_default_action: accNode.actionCount > 0,
+          hasDefaultAction: accNode.actionCount > 0,
+        });
       });
-    });
+    }
+
+    // Fallback híbrido: si AOM no devolvió candidatos, extraer directo de DOM
+    if (candidates.length === 0 && doc.querySelectorAll) {
+      const domElements = doc.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [tabindex='0']");
+      let domIdx = 1;
+      for (const el of domElements) {
+        const rect = el.getBoundingClientRect();
+        const isVisible = rect.width > 0 && rect.height > 0 &&
+                          rect.bottom >= 0 && rect.top <= viewportHeight &&
+                          rect.right >= 0 && rect.left <= viewportWidth;
+        if (onlyVisible && !isVisible) continue;
+
+        const id = `dom-${domIdx++}`;
+        const name = (el.innerText || el.value || el.getAttribute("aria-label") || el.title || el.placeholder || "").trim();
+        const bounds = {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+
+        this.#nodeCache.set(id, el);
+
+        candidates.push({
+          id,
+          role_id: 1,
+          roleId: 1,
+          role: el.tagName.toLowerCase(),
+          name,
+          description: el.getAttribute("aria-description") || "",
+          bounds,
+          is_visible: isVisible,
+          isVisible,
+          has_default_action: true,
+          hasDefaultAction: true,
+        });
+      }
+    }
 
     return {
       candidates,
@@ -217,6 +276,20 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
    */
   #getNodeBounds(accNode) {
     try {
+      if (accNode.DOMNode && typeof accNode.DOMNode.getBoundingClientRect === "function") {
+        const r = accNode.DOMNode.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          return {
+            x: Math.round(r.left),
+            y: Math.round(r.top),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+          };
+        }
+      }
+    } catch (_) {}
+
+    try {
       const x = {}, y = {}, width = {}, height = {};
       accNode.getBoundsInCSSPixels(x, y, width, height);
       return {
@@ -258,6 +331,16 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
     }
 
     try {
+      // Soporte para nodos DOM directos (fallback)
+      if (accNode.click || (typeof accNode.focus === "function" && typeof accNode.getAttribute === "function")) {
+        try { accNode.focus(); } catch (_) {}
+        try { accNode.click(); } catch (_) {}
+        if (mode === "visual-overlay" || mode === "both") {
+          this.#highlightElement(accNode);
+        }
+        return { success: true, executedAction: "click" };
+      }
+
       let executedAction = "takeFocus";
       if (accNode.actionCount > actionIndex) {
         executedAction = accNode.getActionName(actionIndex) || "action";
@@ -379,6 +462,69 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         domNode.style.transition = prevTransition;
       } catch (_) {}
     }, 400);
+  }
+
+  /**
+   * Muestra feedback visual inmediato (HUD flotante + terminal de página) ante cualquier voz reconocida.
+   */
+  #displayVoiceFeedback(transcript, success, decision, reason) {
+    const doc = this.document;
+    if (!doc) return;
+
+    // 1. Si existe #event-log en la página, añadir entrada al terminal interactivo
+    const logEl = doc.getElementById("event-log");
+    if (logEl) {
+      const time = new Date().toLocaleTimeString();
+      const statusIcon = success ? "✅" : "⚠️";
+      const latencyStr = decision?.latency_ms ? ` (${decision.latency_ms.toFixed(2)}ms)` : "";
+      const targetLabel = decision?.matched_id 
+        ? `Coincidencia ID #${decision.matched_id} -> Acción: ${decision.action}${latencyStr}`
+        : (reason || 'No coincide con botones en pantalla (prueba: "inicio", "guardar cambios", "configuración", "wikipedia")');
+      logEl.textContent = `[${time}] ${statusIcon} Voz: "${transcript}" -> ${targetLabel}\n` + logEl.textContent;
+    }
+
+    // 2. Floating HUD Toast en la esquina superior derecha de la ventana
+    let hud = doc.getElementById("zenkev-voice-hud");
+    if (!hud) {
+      hud = doc.createElement("div");
+      hud.id = "zenkev-voice-hud";
+      hud.style.cssText = `
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 2147483647;
+        background: rgba(15, 23, 42, 0.95);
+        color: #f8fafc;
+        border-radius: 10px;
+        padding: 12px 18px;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: opacity 0.3s ease;
+        pointer-events: none;
+      `;
+      doc.body?.appendChild(hud);
+    }
+
+    hud.style.border = `2px solid ${success ? '#10b981' : '#f59e0b'}`;
+    hud.innerHTML = `
+      <span style="font-size: 22px;">${success ? '🎯' : '🎤'}</span>
+      <div>
+        <div style="font-weight: 700; color: #fff;">Voz: "${transcript}"</div>
+        <div style="font-size: 12px; color: ${success ? '#34d399' : '#fbbf24'};">
+          ${success ? `Acción ejecutada (${decision?.latency_ms?.toFixed(1) || 0}ms)` : 'Sin coincidencia (prueba: "guardar", "inicio", "wikipedia")'}
+        </div>
+      </div>
+    `;
+
+    hud.style.opacity = "1";
+    this.contentWindow.clearTimeout(this._hudTimeout);
+    this._hudTimeout = this.contentWindow.setTimeout(() => {
+      if (hud) hud.style.opacity = "0";
+    }, 4000);
   }
 
   /**

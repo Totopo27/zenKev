@@ -13,6 +13,26 @@
 
 const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
 
+function logDebug(msg) {
+  let isDebug = false;
+  try {
+    isDebug = Services.prefs.getBoolPref("zen.voicenav.debug", false);
+  } catch (_) {}
+
+  if (!isDebug) return;
+
+  const time = new Date().toLocaleTimeString();
+  const line = `[ZenKev:EngineClient ${time}] ${msg}`;
+  console.log(line);
+
+  try {
+    if (typeof IOUtils !== "undefined" && IOUtils.writeUTF8 && PathUtils?.profileDir) {
+      const logPath = PathUtils.join(PathUtils.profileDir, "zenkev_debug.log");
+      IOUtils.writeUTF8(logPath, line + "\n", { mode: "appendOrCreate" }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
 export class ZenVoiceEngineClient {
   #process = null;
   #pendingRequests = []; // Cola de resolvers { resolve, reject }
@@ -21,12 +41,15 @@ export class ZenVoiceEngineClient {
   #enginePath = null;
 
   constructor(enginePath = null) {
-    this.#enginePath =
-      enginePath ||
-      Services.prefs.getStringPref(
-        "zen.voicenav.engine-path",
-        PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe")
-      );
+    if (enginePath) {
+      this.#enginePath = enginePath;
+    } else {
+      try {
+        this.#enginePath = Services.prefs.getStringPref("zen.voicenav.engine-path");
+      } catch (_) {
+        this.#enginePath = PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
+      }
+    }
   }
 
   /**
@@ -43,11 +66,15 @@ export class ZenVoiceEngineClient {
 
     this.#isStarting = true;
     try {
+      const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
+                      PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
+
       this.#process = await Subprocess.call({
         command: this.#enginePath,
-        arguments: [],
+        arguments: ["--ipc", ipcPath],
         environment: {
           RUST_BACKTRACE: "1",
+          ZEN_VOICE_IPC_PATH: ipcPath,
         },
         stderr: "stdout",
       });
@@ -84,6 +111,59 @@ export class ZenVoiceEngineClient {
 
           try {
             const parsed = JSON.parse(trimmed);
+
+            // Si es un comando de voz transcrito recibido en tiempo real por el motor
+            if (parsed.voice_command || parsed.type === "transcription_ready") {
+              const transcript = parsed.transcript || parsed.voice_command || parsed.text;
+              logDebug(`Comando en vivo recibido: "${transcript}"`);
+              try {
+                const windows = Services.wm.getEnumerator("navigator:browser");
+                let dispatched = false;
+                let count = 0;
+                while (windows.hasMoreElements()) {
+                  count++;
+                  const win = windows.getNext();
+                  if (!win || win.closed) continue;
+
+                  const browser = win.gBrowser?.selectedBrowser;
+                  const uri = browser?.currentURI?.spec || "sin uri";
+                  logDebug(`Ventana #${count} URL activa: ${uri}`);
+
+                  const cwg = browser?.browsingContext?.currentWindowGlobal;
+                  let actor = null;
+                  try {
+                    actor = cwg?.getActor("ZenVoiceNav");
+                  } catch (errActor) {
+                    logDebug(`Error al llamar getActor("ZenVoiceNav"): ${errActor}`);
+                  }
+
+                  if (actor) {
+                    logDebug(`Actor ZenVoiceNav encontrado en ventana #${count}. Despachando processVoiceCommand...`);
+                    actor.processVoiceCommand(transcript).catch((e) => {
+                      logDebug(`Error en actor.processVoiceCommand: ${e}`);
+                    });
+                    dispatched = true;
+                    break;
+                  } else if (win.gZenVoiceNav) {
+                    logDebug(`gZenVoiceNav encontrado en ventana #${count}. Despachando...`);
+                    win.gZenVoiceNav.processCommand(transcript).catch((e) => {
+                      logDebug(`Error en gZenVoiceNav.processCommand: ${e}`);
+                    });
+                    dispatched = true;
+                    break;
+                  } else {
+                    logDebug(`Ventana #${count} NO tiene actor ni gZenVoiceNav`);
+                  }
+                }
+                if (!dispatched) {
+                  logDebug(`AVISO: Ninguna ventana/pestaña pudo procesar el comando.`);
+                }
+              } catch (e) {
+                logDebug(`Excepción al despachar comando: ${e}`);
+              }
+              continue;
+            }
+
             const nextResolver = this.#pendingRequests.shift();
             if (nextResolver) {
               nextResolver.resolve(parsed);
@@ -120,7 +200,7 @@ export class ZenVoiceEngineClient {
 
     return new Promise((resolve, reject) => {
       this.#pendingRequests.push({ resolve, reject });
-      this.#process.stdin.writeString(payload).catch((err) => {
+      this.#process.stdin.write(payload).catch((err) => {
         // Remover de la cola si falló la escritura
         const idx = this.#pendingRequests.findIndex((r) => r.resolve === resolve);
         if (idx !== -1) this.#pendingRequests.splice(idx, 1);

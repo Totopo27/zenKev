@@ -6,7 +6,18 @@ use strsim::sorensen_dice;
 /// - Remueve acentos/diacríticos comunes
 /// - Remueve caracteres no alfanuméricos redundantes
 pub fn normalize_text(input: &str) -> String {
-    input
+    // Protección contra DoS / String Poisoning: limitar a 512 bytes seguros
+    let bounded = if input.len() > 512 {
+        let mut end = 512;
+        while !input.is_char_boundary(end) {
+            end -= 1;
+        }
+        &input[..end]
+    } else {
+        input
+    };
+
+    bounded
         .to_lowercase()
         .chars()
         .map(|c| match c {

@@ -1,5 +1,6 @@
 # Build artifacts
-/target/
+target/
+**/target/
 **/*.exe
 **/*.pdb
 **/*.dll
@@ -8,10 +9,16 @@
 **/*.rlib
 **/*.rmeta
 
-# Node & Temp
+# Node, IPC & Temp
 node_modules/
 npm-debug.log*
 .DS_Store
 Thumbs.db
 *.tmp
 *.log
+*.ipc
+
+# Tooling & Backups
+.atl/
+*.backup*
+

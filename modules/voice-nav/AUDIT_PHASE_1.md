@@ -1,7 +1,7 @@
 # Informe de Auditoría y Hardening — Fase 1 (Extractor AOM)
 **Fecha:** 28 de Septiembre de 2026  
 **Módulo auditado:** `zenKev/modules/voice-nav/actors/` (`ZenVoiceNavChild.sys.mjs`, `ZenVoiceNavParent.sys.mjs`)  
-**Metodología aplicada:** Invariantes Formales + Análisis Adversario (según `D:\DocumentosDiscoD\catalogo-herramientas-skills\ESTRATEGIA_PROMPTING_AUDITORIA_IA.md` y estándares Upstream de Zen Browser).
+**Metodología aplicada:** Invariantes Formales + Análisis Adversario (según ESTRATEGIA_PROMPTING_AUDITORIA_IA y estándares Upstream de Zen Browser).
 
 ---
 
