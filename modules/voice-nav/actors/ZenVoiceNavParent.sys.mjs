@@ -33,16 +33,14 @@ function logDebug(msg) {
   } catch (_) {}
 }
 
-let gVoiceEngineClient = null;
-
 function getVoiceEngineClient() {
-  if (!gVoiceEngineClient) {
-    gVoiceEngineClient = new ZenVoiceEngineClient();
-    gVoiceEngineClient.ensureStarted().catch((err) => {
+  if (!Services.zenVoiceEngineClient) {
+    Services.zenVoiceEngineClient = new ZenVoiceEngineClient();
+    Services.zenVoiceEngineClient.ensureStarted().catch((err) => {
       console.warn("[ZenVoiceNavParent] No se pudo auto-iniciar el motor de voz:", err);
     });
   }
-  return gVoiceEngineClient;
+  return Services.zenVoiceEngineClient;
 }
 
 function getVoiceNavMode(overrideMode = null) {
