@@ -6,8 +6,8 @@
  * @file ZenVoiceNavParent.sys.mjs
  * Módulo del proceso principal (Chrome / Parent Process) que:
  * 1. Dialoga con el Actor Child a través de JSWindowActorParent.
- * 2. Solicita la lista podada de candidatos AOM de la pestaña seleccionada.
- * 3. Expone la API para ejecutar acciones en el nodo seleccionado.
+ * 2. Ejecuta comandos globales de navegador (historial, pestañas, scroll, búsqueda, URLs).
+ * 3. Solicita la lista podada de candidatos AOM de la pestaña seleccionada.
  * 4. Actúa de puente hacia el demonio Rust (IPC / Native Messaging vía Subprocess).
  */
 
@@ -54,6 +54,256 @@ function getVoiceNavMode(overrideMode = null) {
   }
 }
 
+/**
+ * Resuelve una intención de navegación hacia un sitio web o consulta web.
+ */
+function resolveSiteUrl(target) {
+  const clean = target.toLowerCase().trim();
+
+  const SITE_MAP = {
+    wikipedia: "https://es.wikipedia.org",
+    google: "https://www.google.com",
+    youtube: "https://www.youtube.com",
+    github: "https://www.github.com",
+    reddit: "https://www.reddit.com",
+    twitter: "https://x.com",
+    x: "https://x.com",
+    facebook: "https://www.facebook.com",
+    instagram: "https://www.instagram.com",
+    whatsapp: "https://web.whatsapp.com",
+    gmail: "https://mail.google.com",
+    amazon: "https://www.amazon.com",
+    noticias: "https://news.google.com",
+    traductor: "https://translate.google.com",
+  };
+
+  if (SITE_MAP[clean]) {
+    return SITE_MAP[clean];
+  }
+
+  if (/^https?:\/\//i.test(clean)) {
+    return clean;
+  }
+
+  // Si tiene formato de dominio (ej. wikipedia.org, github.io, elpais.com)
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(\/.*)?$/i.test(clean)) {
+    return `https://${clean}`;
+  }
+
+  // Si es una frase genérica de navegación, buscar en Google
+  return `https://www.google.com/search?q=${encodeURIComponent(target)}`;
+}
+
+/**
+ * Carga una URL en la pestaña activa del navegador.
+ */
+function openUrlInBrowser(topWin, url) {
+  try {
+    if (typeof topWin.openTrustedLinkIn === "function") {
+      topWin.openTrustedLinkIn(url, "current");
+      return;
+    }
+  } catch (_) {}
+
+  try {
+    const browser = topWin.gBrowser?.selectedBrowser;
+    if (browser?.loadURI) {
+      const uri = Services.io.newURI(url);
+      browser.loadURI(uri, {
+        triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      });
+      return;
+    }
+  } catch (_) {}
+}
+
+/**
+ * Ejecuta comandos globales de nivel de navegador (historial, pestañas, scroll, búsqueda, URLs).
+ */
+export async function executeGlobalVoiceCommand(transcript, topWin, actor = null) {
+  if (!transcript || typeof transcript !== "string") return { handled: false };
+  const text = transcript.trim().toLowerCase();
+  const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
+  if (!win) return { handled: false };
+
+  const gBrowser = win.gBrowser;
+
+  function notifyHUD(success, label) {
+    if (actor?.sendAsyncMessage) {
+      try {
+        actor.sendAsyncMessage("ZenVoiceNav:LogCommand", {
+          transcript,
+          success,
+          decision: {
+            action: label,
+            latency_ms: 0.1,
+          },
+        });
+      } catch (_) {}
+    }
+  }
+
+  // 1. Historial de Navegación
+  if (/^(?:ir\s+)?atr[aá]s$|^volver$|^retroceder$|^p[aá]gina\s+anterior$/i.test(text)) {
+    logDebug("Comando global detectado: Atrás");
+    if (gBrowser) {
+      if (gBrowser.canGoBack) {
+        gBrowser.goBack();
+      } else if (gBrowser.selectedBrowser?.canGoBack) {
+        gBrowser.selectedBrowser.goBack();
+      }
+    }
+    notifyHUD(true, "Navegar atrás");
+    return { handled: true, action: "history_back" };
+  }
+
+  if (/^(?:ir\s+)?adelante$|^avanzar$|^p[aá]gina\s+siguiente$/i.test(text)) {
+    logDebug("Comando global detectado: Adelante");
+    if (gBrowser) {
+      if (gBrowser.canGoForward) {
+        gBrowser.goForward();
+      } else if (gBrowser.selectedBrowser?.canGoForward) {
+        gBrowser.selectedBrowser.goForward();
+      }
+    }
+    notifyHUD(true, "Navegar adelante");
+    return { handled: true, action: "history_forward" };
+  }
+
+  if (/^recargar(?:\s+p[aá]gina)?$|^actualizar(?:\s+p[aá]gina)?$|^refrescar$/i.test(text)) {
+    logDebug("Comando global detectado: Recargar página");
+    if (gBrowser?.selectedTab) {
+      gBrowser.reloadTab(gBrowser.selectedTab);
+    } else if (win.BrowserReload) {
+      win.BrowserReload();
+    }
+    notifyHUD(true, "Recargar página");
+    return { handled: true, action: "page_reload" };
+  }
+
+  // 2. Control de Pestañas
+  if (/^nueva\s+pesta[nñ]a$|^abrir\s+pesta[nñ]a$|^crear\s+pesta[nñ]a$/i.test(text)) {
+    logDebug("Comando global detectado: Nueva pestaña");
+    if (win.BrowserOpenTab) {
+      win.BrowserOpenTab();
+    } else if (gBrowser?.addTrustedTab) {
+      gBrowser.addTrustedTab("about:newtab");
+    }
+    notifyHUD(true, "Nueva pestaña");
+    return { handled: true, action: "new_tab" };
+  }
+
+  if (/^cerrar\s+(?:esta\s+)?pesta[nñ]a$|^quitar\s+pesta[nñ]a$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar pestaña");
+    if (gBrowser?.selectedTab) {
+      gBrowser.removeTab(gBrowser.selectedTab);
+    }
+    notifyHUD(true, "Cerrar pestaña");
+    return { handled: true, action: "close_tab" };
+  }
+
+  if (/^siguiente\s+pesta[nñ]a$|^pesta[nñ]a\s+siguiente$|^cambiar\s+pesta[nñ]a$/i.test(text)) {
+    logDebug("Comando global detectado: Siguiente pestaña");
+    if (gBrowser?.tabContainer?.advanceSelectedTab) {
+      gBrowser.tabContainer.advanceSelectedTab(1, true);
+    }
+    notifyHUD(true, "Siguiente pestaña");
+    return { handled: true, action: "next_tab" };
+  }
+
+  if (/^pesta[nñ]a\s+anterior$|^anterior\s+pesta[nñ]a$/i.test(text)) {
+    logDebug("Comando global detectado: Pestaña anterior");
+    if (gBrowser?.tabContainer?.advanceSelectedTab) {
+      gBrowser.tabContainer.advanceSelectedTab(-1, true);
+    }
+    notifyHUD(true, "Pestaña anterior");
+    return { handled: true, action: "previous_tab" };
+  }
+
+  // 3. Zoom Accesible
+  if (/^zoom\s+m[aá]s$|^aumentar\s+zoom$|^m[aá]s\s+zoom$/i.test(text)) {
+    logDebug("Comando global detectado: Aumentar zoom");
+    if (win.FullZoom?.enlarge) win.FullZoom.enlarge();
+    notifyHUD(true, "Aumentar zoom");
+    return { handled: true, action: "zoom_in" };
+  }
+
+  if (/^zoom\s+menos$|^reducir\s+zoom$|^menos\s+zoom$/i.test(text)) {
+    logDebug("Comando global detectado: Reducir zoom");
+    if (win.FullZoom?.reduce) win.FullZoom.reduce();
+    notifyHUD(true, "Reducir zoom");
+    return { handled: true, action: "zoom_out" };
+  }
+
+  if (/^restablecer\s+zoom$|^zoom\s+normal$|^zoom\s+100$/i.test(text)) {
+    logDebug("Comando global detectado: Restablecer zoom");
+    if (win.FullZoom?.reset) win.FullZoom.reset();
+    notifyHUD(true, "Zoom 100%");
+    return { handled: true, action: "zoom_reset" };
+  }
+
+  // 4. Desplazamiento (Scroll)
+  if (/^bajar$|^scroll\s+abajo$|^desplazar\s+abajo$|^m[aá]s\s+abajo$|^baja$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll abajo");
+    if (actor?.scroll) {
+      await actor.scroll("down");
+    }
+    notifyHUD(true, "Desplazar hacia abajo");
+    return { handled: true, action: "scroll_down" };
+  }
+
+  if (/^subir$|^scroll\s+arriba$|^desplazar\s+arriba$|^m[aá]s\s+arriba$|^sube$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll arriba");
+    if (actor?.scroll) {
+      await actor.scroll("up");
+    }
+    notifyHUD(true, "Desplazar hacia arriba");
+    return { handled: true, action: "scroll_up" };
+  }
+
+  if (/^arriba\s+del\s+todo$|^al\s+principio$|^ir\s+al\s+inicio\s+de\s+p[aá]gina$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll arriba del todo");
+    if (actor?.scroll) {
+      await actor.scroll("top");
+    }
+    notifyHUD(true, "Ir arriba del todo");
+    return { handled: true, action: "scroll_top" };
+  }
+
+  if (/^abajo\s+del\s+todo$|^al\s+final$|^final\s+de\s+la\s+p[aá]gina$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll abajo del todo");
+    if (actor?.scroll) {
+      await actor.scroll("bottom");
+    }
+    notifyHUD(true, "Ir abajo del todo");
+    return { handled: true, action: "scroll_bottom" };
+  }
+
+  // 5. Búsqueda Web (ej. "buscar noticias de tecnología", "busca recetas fáciles")
+  const searchMatch = text.match(/^(?:buscar|busca)(?:\s+en\s+google|\s+en\s+la\s+web)?\s+(.+)$/i);
+  if (searchMatch && searchMatch[1]) {
+    const query = searchMatch[1].trim();
+    logDebug(`Comando global detectado: Búsqueda web para "${query}"`);
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    openUrlInBrowser(win, searchUrl);
+    notifyHUD(true, `Búsqueda en Google: "${query}"`);
+    return { handled: true, action: "web_search", query };
+  }
+
+  // 6. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
+  const navMatch = text.match(/^(?:ir\s+a|abrir|navegar\s+a|entrar\s+a)\s+(.+)$/i);
+  if (navMatch && navMatch[1]) {
+    const target = navMatch[1].trim();
+    const resolvedUrl = resolveSiteUrl(target);
+    logDebug(`Comando global detectado: Navegar a "${target}" -> ${resolvedUrl}`);
+    openUrlInBrowser(win, resolvedUrl);
+    notifyHUD(true, `Navegando a: ${target}`);
+    return { handled: true, action: "navigate_url", url: resolvedUrl };
+  }
+
+  return { handled: false };
+}
+
 export function initZenVoiceNav(topWin) {
   if (!topWin || topWin.gZenVoiceNav) return;
   topWin.gZenVoiceNav = {
@@ -74,7 +324,10 @@ export function initZenVoiceNav(topWin) {
     },
     processCommand: async (transcript) => {
       const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
-      return actor ? await actor.processVoiceCommand(transcript) : { success: false, error: "No actor" };
+      if (actor) {
+        return await actor.processVoiceCommand(transcript);
+      }
+      return await executeGlobalVoiceCommand(transcript, topWin, null);
     },
     toggleOverlay: async () => {
       const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
@@ -155,6 +408,19 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
   }
 
   /**
+   * Desplaza suavemente la ventana activa en el proceso de contenido.
+   * @param {string} direction - "down" | "up" | "top" | "bottom"
+   * @param {number|null} amount - Píxeles a desplazar (opcional).
+   */
+  async scroll(direction, amount = null) {
+    try {
+      return await this.sendQuery("ZenVoiceNav:Scroll", { direction, amount });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
    * Limpia el caché de nodos AOM retenidos en el Content Process.
    */
   async clearCache() {
@@ -205,17 +471,26 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
 
   /**
    * Procesa un comando de voz completo:
-   * 1. Extrae candidatos AOM podados del Child.
-   * 2. Si está en modo vidente, muestra el overlay con badges.
-   * 3. Despacha al demonio Rust para clasificar en <1ms.
-   * 4. Ejecuta la acción en el nodo ganador con la variante sensorial configurada.
+   * 1. Comprueba si es un comando global de navegador (historial, pestañas, scroll, búsqueda, URLs).
+   * 2. Si no es global, extrae candidatos AOM podados del Child.
+   * 3. Si está en modo vidente, muestra el overlay con badges.
+   * 4. Despacha al demonio Rust para clasificar contra elementos en pantalla en <1ms.
+   * 5. Ejecuta la acción en el nodo ganador con la variante sensorial configurada.
    * @param {string} transcript - Texto del comando de voz.
    */
   async processVoiceCommand(transcript) {
-    const mode = getVoiceNavMode();
-    logDebug(`Iniciando processVoiceCommand: "${transcript}", modo: ${mode}`);
+    const topWin = this.browsingContext?.topChromeWindow || Services.wm?.getMostRecentWindow("navigator:browser");
+    
+    // 1. Prioridad: Comandos globales del navegador
+    const globalRes = await executeGlobalVoiceCommand(transcript, topWin, this);
+    if (globalRes && globalRes.handled) {
+      return globalRes;
+    }
 
-    // 1. Obtener candidatos interactivos
+    const mode = getVoiceNavMode();
+    logDebug(`Iniciando processVoiceCommand en página: "${transcript}", modo: ${mode}`);
+
+    // 2. Obtener candidatos interactivos en la página
     let candidates = [];
     try {
       const candidatesRes = await this.getCandidates(true);
@@ -237,12 +512,12 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       return { success: false, reason: "No hay elementos accionables en pantalla" };
     }
 
-    // 2. Si es modo visual, pintar los badges flotantes
+    // 3. Si es modo visual, pintar los badges flotantes
     if (mode === "visual-overlay" || mode === "both") {
       await this.showVisualOverlay(candidates);
     }
 
-    // 3. Consultar al motor en Rust
+    // 4. Consultar al motor en Rust
     logDebug(`Consultando clasificación al motor Rust...`);
     const engine = getVoiceEngineClient();
     const decision = await engine.classify(transcript, candidates, 10);
@@ -257,13 +532,13 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       });
     } catch (_) {}
 
-    // 4. Si requiere fallback a Sistema 2 (botón mudo), capturar recorte
+    // 5. Si requiere fallback a Sistema 2 (botón mudo), capturar recorte
     if (decision.fallback_to_vlm && decision.matched_id) {
       console.log("[ZenVoiceNavParent] Activando Sistema 2 para botón mudo ID:", decision.matched_id);
       const crop = await this.captureNodeCrop(decision.matched_id);
     }
 
-    // 5. Ejecutar la acción si hubo un match con confianza suficiente
+    // 6. Ejecutar la acción si hubo un match con confianza suficiente
     if (decision.matched_id) {
       logDebug(`Ejecutando acción en nodo ID ${decision.matched_id}...`);
       const actionResult = await this.executeAction(decision.matched_id, 0, mode);

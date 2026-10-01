@@ -87,6 +87,25 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         return { success: true };
       }
 
+      case "ZenVoiceNav:Scroll": {
+        const { direction, amount } = message.data || {};
+        const win = this.contentWindow;
+        if (!win) return { success: false };
+
+        const scrollAmount = amount || Math.round(win.innerHeight * 0.7);
+
+        if (direction === "down") {
+          win.scrollBy({ top: scrollAmount, left: 0, behavior: "smooth" });
+        } else if (direction === "up") {
+          win.scrollBy({ top: -scrollAmount, left: 0, behavior: "smooth" });
+        } else if (direction === "top") {
+          win.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+        } else if (direction === "bottom") {
+          win.scrollTo({ top: win.document.documentElement.scrollHeight, left: 0, behavior: "smooth" });
+        }
+        return { success: true };
+      }
+
       case "ZenVoiceNav:ClearCache":
         this.#nodeCache.clear();
         return { success: true };
