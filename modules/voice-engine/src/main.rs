@@ -160,8 +160,7 @@ async fn main() -> anyhow::Result<()> {
         stdout.flush()?;
     }
 
-    // Mantener el demonio vivo para seguir atendiendo la cola IPC
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(3600));
-    }
+    // Al cerrarse el pipe stdin (cuando Zen Browser cierra el cliente), terminar limpiamente
+    log_debug("Stdin cerrado por el proceso principal. Terminando zen-voice-engine limpiamente.");
+    Ok(())
 }

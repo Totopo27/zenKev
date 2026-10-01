@@ -305,32 +305,60 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 }
 
 export function initZenVoiceNav(topWin) {
-  if (!topWin || topWin.gZenVoiceNav) return;
+  if (!topWin) return;
   topWin.gZenVoiceNav = {
-    getActor: () => topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav"),
+    getActor: () => {
+      try {
+        return topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {
+        return null;
+      }
+    },
     getCandidates: async (onlyVisible = true) => {
-      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      let actor = null;
+      try {
+        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {}
       return actor ? await actor.getCandidates(onlyVisible) : { candidates: [], error: "No actor" };
     },
     showOverlay: async () => {
-      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      let actor = null;
+      try {
+        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {}
       if (!actor) return { success: false, error: "No actor" };
       const r = await actor.getCandidates(true);
       return await actor.showVisualOverlay(r.candidates || []);
     },
     hideOverlay: async () => {
-      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      let actor = null;
+      try {
+        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {}
       return actor ? await actor.hideVisualOverlay() : { success: false };
     },
     processCommand: async (transcript) => {
-      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      // 1. Prioridad: Comandos globales del navegador (abrir URLs, búsquedas, pestañas, etc.)
+      const globalRes = await executeGlobalVoiceCommand(transcript, topWin, null);
+      if (globalRes && globalRes.handled) {
+        return globalRes;
+      }
+
+      // 2. Comandos en página interactivos (botones, enlaces, inputs)
+      let actor = null;
+      try {
+        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {}
       if (actor) {
         return await actor.processVoiceCommand(transcript);
       }
-      return await executeGlobalVoiceCommand(transcript, topWin, null);
+      return { success: false, error: "No actor" };
     },
     toggleOverlay: async () => {
-      const actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      let actor = null;
+      try {
+        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+      } catch (_) {}
       if (!actor) return;
       if (topWin._zenVoiceNavOverlayActive) {
         topWin._zenVoiceNavOverlayActive = false;

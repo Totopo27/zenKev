@@ -19,7 +19,7 @@
     },
     "allFrames": false,
     "messageManagerGroups": ["browsers"],
-    "remoteTypes": ["web", "file"],
+    "remoteTypes": ["web", "file", "privilegedabout"],
     "safeForUntrustedWebProcess": true,
     "enablePreference": "zen.voicenav.enabled"
   }
