@@ -101,6 +101,10 @@ export class ZenVoiceEngineClient {
         if (!chunk) break;
 
         this.#readBuffer += chunk;
+        if (this.#readBuffer.length > 1024 * 1024) {
+          console.warn("[ZenVoiceEngineClient] #readBuffer excedió 1MB sin salto de línea. Truncando para prevenir DoS.");
+          this.#readBuffer = "";
+        }
         const lines = this.#readBuffer.split("\n");
         // El último elemento puede ser un fragmento incompleto
         this.#readBuffer = lines.pop();

@@ -46,6 +46,12 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
   }
 
   didDestroy() {
+    if (this._hudTimeout && this.contentWindow) {
+      try {
+        this.contentWindow.clearTimeout(this._hudTimeout);
+      } catch (_) {}
+      this._hudTimeout = null;
+    }
     this.#hideVisualOverlay();
     this.#nodeCache.clear();
     this.#accService = null;
@@ -529,21 +535,38 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
     }
 
     hud.style.border = `2px solid ${success ? '#10b981' : '#f59e0b'}`;
-    hud.innerHTML = `
-      <span style="font-size: 22px;">${success ? '🎯' : '🎤'}</span>
-      <div>
-        <div style="font-weight: 700; color: #fff;">Voz: "${transcript}"</div>
-        <div style="font-size: 12px; color: ${success ? '#34d399' : '#fbbf24'};">
-          ${success ? `Acción ejecutada (${decision?.latency_ms?.toFixed(1) || 0}ms)` : 'Sin coincidencia (prueba: "guardar", "inicio", "wikipedia")'}
-        </div>
-      </div>
-    `;
+    hud.textContent = "";
+
+    const iconSpan = doc.createElement("span");
+    iconSpan.style.fontSize = "22px";
+    iconSpan.textContent = success ? "🎯" : "🎤";
+    hud.appendChild(iconSpan);
+
+    const textContainer = doc.createElement("div");
+
+    const voiceTitle = doc.createElement("div");
+    voiceTitle.style.fontWeight = "700";
+    voiceTitle.style.color = "#fff";
+    voiceTitle.textContent = `Voz: "${transcript}"`;
+    textContainer.appendChild(voiceTitle);
+
+    const actionDesc = doc.createElement("div");
+    actionDesc.style.fontSize = "12px";
+    actionDesc.style.color = success ? "#34d399" : "#fbbf24";
+    actionDesc.textContent = success
+      ? `Acción ejecutada (${decision?.latency_ms?.toFixed(1) || 0}ms)`
+      : 'Sin coincidencia (prueba: "guardar", "inicio", "wikipedia")';
+    textContainer.appendChild(actionDesc);
+
+    hud.appendChild(textContainer);
 
     hud.style.opacity = "1";
-    this.contentWindow.clearTimeout(this._hudTimeout);
-    this._hudTimeout = this.contentWindow.setTimeout(() => {
-      if (hud) hud.style.opacity = "0";
-    }, 4000);
+    if (this.contentWindow) {
+      this.contentWindow.clearTimeout(this._hudTimeout);
+      this._hudTimeout = this.contentWindow.setTimeout(() => {
+        if (hud) hud.style.opacity = "0";
+      }, 4000);
+    }
   }
 
   /**

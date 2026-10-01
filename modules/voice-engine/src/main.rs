@@ -69,19 +69,17 @@ async fn main() -> anyhow::Result<()> {
                     if let Ok(mut file) = std::fs::File::open(&ipc_path_clone) {
                         if file.seek(SeekFrom::Start(last_pos)).is_ok() {
                             let reader = BufReader::new(file);
-                            for line in reader.lines() {
-                                if let Ok(l) = line {
-                                    let trimmed = l.trim();
-                                    if !trimmed.is_empty() {
-                                        log_debug(&format!("Voz recibida por IPC: {}", trimmed));
-                                        let json = serde_json::json!({
-                                            "type": "transcription_ready",
-                                            "transcript": trimmed
-                                        });
-                                        let mut out = io::stdout().lock();
-                                        let _ = writeln!(out, "{}", json);
-                                        let _ = out.flush();
-                                    }
+                            for l in reader.lines().map_while(Result::ok) {
+                                let trimmed = l.trim();
+                                if !trimmed.is_empty() {
+                                    log_debug(&format!("Voz recibida por IPC: {}", trimmed));
+                                    let json = serde_json::json!({
+                                        "type": "transcription_ready",
+                                        "transcript": trimmed
+                                    });
+                                    let mut out = io::stdout().lock();
+                                    let _ = writeln!(out, "{}", json);
+                                    let _ = out.flush();
                                 }
                             }
                         }

@@ -22,3 +22,9 @@ Thumbs.db
 .atl/
 *.backup*
 
+# Environment & Secrets
+.env
+.env.*
+secrets.json
+*.pem
+*.key

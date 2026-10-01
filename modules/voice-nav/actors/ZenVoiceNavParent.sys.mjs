@@ -79,6 +79,11 @@ function resolveSiteUrl(target) {
     return SITE_MAP[clean];
   }
 
+  // Proteger contra esquemas peligrosos (javascript:, data:, vbscript:)
+  if (/^(?:javascript|data|vbscript):/i.test(clean)) {
+    return `https://www.google.com/search?q=${encodeURIComponent(target)}`;
+  }
+
   if (/^https?:\/\//i.test(clean)) {
     return clean;
   }
@@ -303,7 +308,9 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 }
 
 export function initZenVoiceNav(topWin) {
-  if (!topWin) return;
+  if (!topWin || topWin._zenVoiceNavInitialized) return;
+  topWin._zenVoiceNavInitialized = true;
+
   topWin.gZenVoiceNav = {
     getActor: () => {
       try {
