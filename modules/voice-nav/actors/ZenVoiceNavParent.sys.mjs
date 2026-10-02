@@ -355,12 +355,14 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   if (win._zenkevChromeHudTimeout) {
     win.clearTimeout(win._zenkevChromeHudTimeout);
   }
+  const isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
+  const displayDuration = isDemo ? 3800 : 2200;
   win._zenkevChromeHudTimeout = win.setTimeout(() => {
     if (hud) {
       hud.style.opacity = "0";
       hud.style.transform = "translateX(-50%) translateY(-14px)";
     }
-  }, 2800);
+  }, displayDuration);
 }
 
 // Exponer en Services para consumo global en Gecko
@@ -1673,6 +1675,63 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     }
   }
 
+  // Modo Demostración / Presentación (pacing observable para videos y tutoriales)
+  if (/^(?:activar\s+)?modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)$/i.test(text)) {
+    logDebug("Comando global detectado: Activar modo demostración");
+    Services.prefs.setBoolPref("zen.voicenav.demo_mode", true);
+    notifyHUD(true, "Modo Demostración Activado (ritmo observable)");
+    return { handled: true, action: "demo_mode_on" };
+  }
+
+  if (/^(?:desactivar\s+modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)|modo\s+normal)$/i.test(text)) {
+    logDebug("Comando global detectado: Desactivar modo demostración");
+    Services.prefs.setBoolPref("zen.voicenav.demo_mode", false);
+    notifyHUD(true, "Modo Normal Activado (0.1ms ultrarrápido)");
+    return { handled: true, action: "demo_mode_off" };
+  }
+
+  // Control de Superposición Visual / Atajos Numéricos (Badges)
+  if (/^(?:mostrar|ver|activar|abrir)\s+n[uú]meros$|^n[uú]meros$/i.test(text)) {
+    logDebug("Comando global detectado: Mostrar números");
+    try {
+      if (win.gZenVoiceNav?.showOverlay) {
+        await win.gZenVoiceNav.showOverlay();
+        win._zenVoiceNavOverlayActive = true;
+      } else {
+        const a = actor || win.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+        if (a) {
+          const r = await a.getCandidates(true);
+          await a.showVisualOverlay(r?.candidates || []);
+          win._zenVoiceNavOverlayActive = true;
+        }
+      }
+    } catch (e) {
+      logDebug(`Error al mostrar números: ${e}`);
+    }
+    notifyHUD(true, "Atajos numéricos activados");
+    return { handled: true, action: "show_numbers" };
+  }
+
+  if (/^(?:ocultar|quitar|cerrar|esconder)\s+n[uú]meros$/i.test(text)) {
+    logDebug("Comando global detectado: Ocultar números");
+    try {
+      if (win.gZenVoiceNav?.hideOverlay) {
+        await win.gZenVoiceNav.hideOverlay();
+        win._zenVoiceNavOverlayActive = false;
+      } else {
+        const a = actor || win.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+        if (a) {
+          await a.hideVisualOverlay();
+          win._zenVoiceNavOverlayActive = false;
+        }
+      }
+    } catch (e) {
+      logDebug(`Error al ocultar números: ${e}`);
+    }
+    notifyHUD(true, "Atajos numéricos desactivados");
+    return { handled: true, action: "hide_numbers" };
+  }
+
   // 8. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
   const navMatch = text.match(/^(?:ir\s+a|abrir|navegar\s+a|entrar\s+a)\s+(.+)$/i);
   if (navMatch && navMatch[1]) {
@@ -1916,11 +1975,16 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async setInputValue(targetId, value, append = false, submit = false) {
     try {
+      let isDemo = false;
+      try {
+        isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
+      } catch (_) {}
       return await this.sendQuery("ZenVoiceNav:SetInputValue", {
         targetId: targetId ? String(targetId) : null,
         value,
         append,
         submit,
+        typewriter: isDemo,
       });
     } catch (e) {
       console.error(`[ZenVoiceNavParent] Error en setInputValue:`, e);

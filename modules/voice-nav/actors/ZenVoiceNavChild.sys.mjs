@@ -117,11 +117,12 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         return { success: true };
 
       case "ZenVoiceNav:SetInputValue":
-        return this.#setInputValue(
+        return await this.#setInputValue(
           message.data?.targetId,
           message.data?.value ?? "",
           message.data?.append ?? false,
-          message.data?.submit ?? false
+          message.data?.submit ?? false,
+          message.data?.typewriter ?? false
         );
 
       case "ZenVoiceNav:ClearInput":
@@ -480,7 +481,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
    * Dictado Inteligente: escribe o concatena texto en un campo de entrada o elemento editable.
    * Dispara eventos input y change compatibles con React, Vue, Angular y Vanilla JS.
    */
-  #setInputValue(targetId, value, append = false, submit = false) {
+  async #setInputValue(targetId, value, append = false, submit = false, typewriter = false) {
     let el = null;
     if (targetId) {
       const cached = this.#nodeCache.get(String(targetId));
@@ -499,6 +500,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
 
     try {
       el.focus();
+      this.#highlightElement(el);
 
       if (el.isContentEditable) {
         if (append) {
@@ -509,24 +511,40 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
         el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
       } else {
-        const finalValue = append && el.value ? `${el.value} ${value}` : value;
-
-        // Llamar descriptor nativo del prototipo para sortear overrides de React/Vue
         const proto = Object.getPrototypeOf(el);
         const desc = Object.getOwnPropertyDescriptor(proto, "value");
-        if (desc && desc.set) {
-          desc.set.call(el, finalValue);
-        } else {
-          el.value = finalValue;
-        }
+        const startVal = append && el.value ? `${el.value} ` : "";
 
-        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
-        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+        if (typewriter && value && value.length > 0) {
+          for (let i = 1; i <= value.length; i++) {
+            const curVal = startVal + value.slice(0, i);
+            if (desc && desc.set) {
+              desc.set.call(el, curVal);
+            } else {
+              el.value = curVal;
+            }
+            el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+            if (i < value.length) {
+              await new Promise(r => this.contentWindow.setTimeout(r, 35));
+            }
+          }
+          el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+        } else {
+          const finalValue = append && el.value ? `${el.value} ${value}` : value;
+          if (desc && desc.set) {
+            desc.set.call(el, finalValue);
+          } else {
+            el.value = finalValue;
+          }
+          el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+          el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+        }
       }
 
-      this.#highlightElement(el);
-
       if (submit && el.form) {
+        if (typewriter) {
+          await new Promise(r => this.contentWindow.setTimeout(r, 200));
+        }
         try {
           if (typeof el.form.requestSubmit === "function") {
             el.form.requestSubmit();

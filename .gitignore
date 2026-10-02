@@ -17,6 +17,7 @@ Thumbs.db
 *.tmp
 *.log
 *.ipc
+*.mp4
 
 # Tooling & Backups
 .atl/
