@@ -165,7 +165,10 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       this.#traverseAOM(rootAcc, (accNode) => {
         const role = accNode.role;
         if (!this.#isActionableRole(role)) {
-          return;
+          const tag = accNode.DOMNode?.tagName?.toUpperCase();
+          if (tag !== "TEXTAREA" && tag !== "INPUT" && tag !== "BUTTON" && tag !== "SELECT" && !accNode.DOMNode?.isContentEditable) {
+            return;
+          }
         }
 
         // Obtener coordenadas en píxeles CSS para poda y para Sistema 2 (VLM)
@@ -333,6 +336,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       case Ci.nsIAccessibleRole.ROLE_PUSHBUTTON:
       case Ci.nsIAccessibleRole.ROLE_LINK:
       case Ci.nsIAccessibleRole.ROLE_ENTRY:
+      case Ci.nsIAccessibleRole.ROLE_TEXT_CONTAINER:
       case Ci.nsIAccessibleRole.ROLE_CHECKBUTTON:
       case Ci.nsIAccessibleRole.ROLE_RADIOBUTTON:
       case Ci.nsIAccessibleRole.ROLE_COMBOBOX:

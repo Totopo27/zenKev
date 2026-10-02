@@ -227,18 +227,30 @@ export function playEarcon(type = "success", topWin = null) {
 Services.zenPlayVoiceEarcon = playEarcon;
 
 const WORD_TO_NUMBER = {
-  uno: 1, un: 1, una: 1,
-  dos: 2, tres: 3, cuatro: 4, cinco: 5,
-  seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
+  uno: 1, un: 1, una: 1, primero: 1, primer: 1, primera: 1,
+  dos: 2, segundo: 2, segunda: 2,
+  tres: 3, tercero: 3, tercer: 3, tercera: 3,
+  cuatro: 4, cuarto: 4, cuarta: 4,
+  cinco: 5, quinto: 5, quinta: 5,
+  seis: 6, sexto: 6, sexta: 6,
+  siete: 7, septimo: 7, séptimo: 7, septima: 7, séptima: 7,
+  ocho: 8, octavo: 8, octava: 8,
+  nueve: 9, noveno: 9, novena: 9,
+  diez: 10, decimo: 10, décimo: 10,
   once: 11, doce: 12, trece: 13, catorce: 14, quince: 15,
   dieciséis: 16, dieciseis: 16, diecisiete: 17, dieciocho: 18,
   diecinueve: 19, veinte: 20,
+  veintiuno: 21, veintiun: 21, veintiún: 21, veintidós: 22, veintidos: 22, veintitrés: 23, veintitres: 23,
+  veinticuatro: 24, veinticinco: 25, veintiséis: 26, veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29,
+  treinta: 30,
   first: 1, one: 1, two: 2, second: 2,
   three: 3, third: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
 };
 
 /**
  * Resuelve si un comando corresponde a una selección numérica directa de un elemento en pantalla.
+ * Soporta imperativos naturales: "presiona el 2", "pulsa el dos", "dale al 3", "haz clic en 4", "toca el 1".
  * @param {string} transcript - Texto del comando de voz.
  * @returns {number|null} - Índice 1-based del número seleccionado o null.
  */
@@ -246,19 +258,17 @@ export function parseNumericSelection(transcript) {
   if (!transcript || typeof transcript !== "string") return null;
   const clean = transcript.trim().toLowerCase();
 
-  // 1. Dígitos arábigos (ej. "1", "el 3", "opcion 4", "click 2", "pulsar 5")
-  const numMatch = clean.match(
-    /^(?:(?:hacer\s+)?(?:clic|click|pulsar|presionar|seleccionar|elegir|escoger)(?:\s+en)?(?:\s+(?:el|la|al))?|opci[oó]n|n[uú]mero|bot[oó]n|enlace|el|la)?\s*#?([0-9]{1,2})$/i
-  );
+  const prefix = "(?:(?:hacer\\s+clic|haz\\s+clic|haga\\s+clic|dar\\s+clic|da\\s+clic|clic|click|presionar|presiona|presione|pulsar|pulsa|pulse|apretar|aprieta|apriete|tocar|toca|toque|seleccionar|selecciona|seleccione|elegir|elige|elija|escoger|escoge|escoja|dar(?:le)?|dale|da|ir)(?:\\s+(?:en|a|al|sobre))?\\s*)?(?:(?:el|la|al|del)\\s+)?(?:n[uú]mero|opci[oó]n|bot[oó]n|enlace|resultado)?\\s*";
+
+  // 1. Dígitos arábigos (ej. "1", "el 3", "presiona el 2", "dale al 5", "toca el 3")
+  const numMatch = clean.match(new RegExp(`^${prefix}#?([0-9]{1,2})$`, "i"));
   if (numMatch && numMatch[1]) {
     const val = parseInt(numMatch[1], 10);
     if (val >= 1 && val <= 99) return val;
   }
 
-  // 2. Números en palabras (ej. "el dos", "opcion tres", "clic en cuatro")
-  const wordMatch = clean.match(
-    /^(?:(?:hacer\s+)?(?:clic|click|pulsar|presionar|seleccionar|elegir|escoger)(?:\s+en)?(?:\s+(?:el|la|al))?|opci[oó]n|n[uú]mero|bot[oó]n|enlace|el|la)?\s*([a-zñáéíóú]+)$/i
-  );
+  // 2. Números en palabras (ej. "el dos", "presiona el dos", "dale al dos", "opcion tres", "clic en cuatro")
+  const wordMatch = clean.match(new RegExp(`^${prefix}([a-zñáéíóú]+)$`, "i"));
   if (wordMatch && wordMatch[1]) {
     const word = wordMatch[1].trim();
     if (WORD_TO_NUMBER[word] !== undefined) {
@@ -758,7 +768,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // 2.2. Gestión del Ciclo de Vida y Organización de Pestañas
-  if (/^(?:nueva\s+pesta[nñ]a|abrir\s+pesta[nñ]a|crear\s+pesta[nñ]a|new\s+tab)$/i.test(text)) {
+  if (/^(?:(?:abrir|crear)\s+)?nueva\s+pesta[nñ]a$|^(?:abrir|crear)\s+pesta[nñ]a$|^new\s+tab$/i.test(text)) {
     logDebug("Comando global detectado: Nueva pestaña");
     try {
       if (typeof win.BrowserOpenTab === "function") {
@@ -773,7 +783,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "new_tab" };
   }
 
-  if (/^(?:cerrar\s+(?:esta\s+)?pesta[nñ]a|quitar\s+pesta[nñ]a|close\s+tab)$/i.test(text)) {
+  if (/^(?:cerrar\s+(?:esta\s+|la\s+)?pesta[nñ]a|quitar\s+(?:esta\s+|la\s+)?pesta[nñ]a|close\s+tab)$/i.test(text)) {
     logDebug("Comando global detectado: Cerrar pestaña");
     try {
       if (gBrowser?.selectedTab) {
@@ -1676,14 +1686,14 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // Modo Demostración / Presentación (pacing observable para videos y tutoriales)
-  if (/^(?:activar\s+)?modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)$/i.test(text)) {
+  if (/^(?:activar\s+)?modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)$|^(?:iniciar|comenzar|empezar|activar)\s+demo$/i.test(text)) {
     logDebug("Comando global detectado: Activar modo demostración");
     Services.prefs.setBoolPref("zen.voicenav.demo_mode", true);
     notifyHUD(true, "Modo Demostración Activado (ritmo observable)");
     return { handled: true, action: "demo_mode_on" };
   }
 
-  if (/^(?:desactivar\s+modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)|modo\s+normal)$/i.test(text)) {
+  if (/^(?:desactivar|quitar|apagar|detener|parar|terminar|cerrar|salir\s+de)\s+(?:el\s+)?modo\s+(?:demo|demostraci[oó]n|presentaci[oó]n)$|^(?:desactivar|apagar|detener|parar|terminar|cerrar|salir\s+de)\s+demo$|^modo\s+normal$/i.test(text)) {
     logDebug("Comando global detectado: Desactivar modo demostración");
     Services.prefs.setBoolPref("zen.voicenav.demo_mode", false);
     notifyHUD(true, "Modo Normal Activado (0.1ms ultrarrápido)");
@@ -1691,7 +1701,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // Control de Superposición Visual / Atajos Numéricos (Badges)
-  if (/^(?:mostrar|ver|activar|abrir)\s+n[uú]meros$|^n[uú]meros$/i.test(text)) {
+  if (/^(?:mostrar|ver|activar|abrir|poner)\s+(?:los\s+)?n[uú]meros$|^n[uú]meros$/i.test(text)) {
     logDebug("Comando global detectado: Mostrar números");
     try {
       if (win.gZenVoiceNav?.showOverlay) {
@@ -1712,7 +1722,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "show_numbers" };
   }
 
-  if (/^(?:ocultar|quitar|cerrar|esconder)\s+n[uú]meros$/i.test(text)) {
+  if (/^(?:ocultar|quitar|cerrar|esconder|desactivar|apagar)\s+(?:los\s+)?n[uú]meros$/i.test(text)) {
     logDebug("Comando global detectado: Ocultar números");
     try {
       if (win.gZenVoiceNav?.hideOverlay) {
@@ -1749,6 +1759,11 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 export function initZenVoiceNav(topWin) {
   if (!topWin || topWin._zenVoiceNavInitialized) return;
   topWin._zenVoiceNavInitialized = true;
+
+  // Desactivar popups molestos no solicitados (como traducción automática de páginas)
+  try {
+    Services.prefs.setBoolPref("browser.translations.automaticallyPopup", false);
+  } catch (_) {}
 
   registerZenVoiceNavWidget();
 
@@ -2061,7 +2076,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       }
 
       // 1.5. Acciones directas de formulario sin requerir candidatos previos (Enter, Submit, Limpiar campo)
-      if (/^(?:(?:presionar|pulsar|dar|hacer)\s+)?enter$/i.test(transcript.trim())) {
+      if (/^(?:(?:presionar|presiona|presione|pulsar|pulsa|pulse|dar|dale|hacer|haz)\s+)?enter$/i.test(transcript.trim())) {
         logDebug("Comando de formulario: Presionar enter");
         await this.pressEnter(null);
         showNativeChromeHUD(topWin, { success: true, transcript, label: "Enter", latencyMs: 0.05 });
@@ -2075,7 +2090,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         return { success: true, action: "submit_form" };
       }
 
-      if (/^(?:borrar|limpiar|vaciar)\s+campo$/i.test(transcript.trim())) {
+      if (/^(?:borrar|borra|limpiar|limpia|vaciar|vacia)\s+campo$/i.test(transcript.trim())) {
         logDebug("Comando de formulario: Limpiar campo enfocado");
         await this.clearInput(null);
         showNativeChromeHUD(topWin, { success: true, transcript, label: "Campo borrado", latencyMs: 0.05 });
@@ -2098,63 +2113,157 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
     // Helper de resolución de campos de entrada (por índice numérico o coincidencia léxica)
     function findInputTarget(query, list) {
       if (!query) return null;
-      const clean = query.trim().toLowerCase();
+      const clean = query.trim().toLowerCase().replace(/^(?:el\s+campo\s+|el\s+|la\s+|campo\s+)/i, "").trim();
       const num = parseNumericSelection(clean);
       if (num !== null && num >= 1 && num <= list.length) {
         return list[num - 1];
       }
-      const inputs = list.filter(c => c.is_input || c.role_id === 3 || c.role?.includes("entry") || c.role?.includes("text") || c.role?.includes("input"));
+      const inputs = list.filter(c => c.is_input || c.role_id === 3 || c.role?.includes("entry") || c.role?.includes("text") || c.role?.includes("input") || c.role?.includes("textarea"));
       const pool = inputs.length > 0 ? inputs : list;
       return pool.find(c => c.name && c.name.toLowerCase() === clean) ||
              pool.find(c => c.name && c.name.toLowerCase().includes(clean)) ||
              pool.find(c => c.description && c.description.toLowerCase().includes(clean)) ||
+             pool.find(c => (c.placeholder || "").toLowerCase().includes(clean)) ||
              null;
     }
 
-    // 2.0. Dictado Inteligente en Campos de Formulario (Opción 2)
-    const typeInMatch = transcript.match(/^(?:escribir|dictar|poner|introducir)\s+(.+?)\s+en\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+)$/i);
-    const fillWithMatch = transcript.match(/^(?:rellenar|llenar)\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+?)\s+con\s+(.+)$/i);
-    if (typeInMatch || fillWithMatch) {
-      const textToType = typeInMatch ? typeInMatch[1].trim() : fillWithMatch[2].trim();
-      const fieldQuery = typeInMatch ? typeInMatch[2].trim() : fillWithMatch[1].trim();
+    // 2.0. Dictado Inteligente en Campos de Formulario (Imperativo y Natural)
+    const DICT_VERBS = "(?:escribir|escribe|escriba|dictar|dicta|dicte|poner|pon|ponga|introducir|introduce|introduzca|tipear|tipea|teclear|teclea)";
+    const fillWithMatch = transcript.match(/^(?:rellenar|rellena|rellene|llenar|llena|llene)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+)?([a-z0-9ñáéíóú\s_-]+?)\s+con\s+(.+)$/i);
+    const typeInEndMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+?)\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+)$`, "i"));
+    const typeInMidMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+?)\\s+(.+)$`, "i"));
+    const directVerbMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+)$`, "i"));
 
-      const targetCandidate = findInputTarget(fieldQuery, candidates);
-      if (targetCandidate) {
-        logDebug(`Dictado en campo: "${textToType}" -> ${targetCandidate.name || targetCandidate.role} (ID ${targetCandidate.id})`);
-        await this.setInputValue(targetCandidate.id, textToType, false, false);
+    let dictTarget = null;
+    let textToType = null;
+    let fieldQuery = "";
+
+    if (fillWithMatch) {
+      fieldQuery = fillWithMatch[1].trim();
+      textToType = fillWithMatch[2].trim();
+      dictTarget = findInputTarget(fieldQuery, candidates);
+      if (!dictTarget) {
+        try {
+          const allRes = await this.getCandidates(false);
+          dictTarget = findInputTarget(fieldQuery, allRes?.candidates || []);
+        } catch (_) {}
+      }
+    } else if (typeInMidMatch) {
+      fieldQuery = typeInMidMatch[1].trim();
+      textToType = typeInMidMatch[2].trim();
+      dictTarget = findInputTarget(fieldQuery, candidates);
+      if (!dictTarget) {
+        try {
+          const allRes = await this.getCandidates(false);
+          dictTarget = findInputTarget(fieldQuery, allRes?.candidates || []);
+        } catch (_) {}
+      }
+    } else if (typeInEndMatch) {
+      fieldQuery = typeInEndMatch[2].trim();
+      textToType = typeInEndMatch[1].trim();
+      dictTarget = findInputTarget(fieldQuery, candidates);
+      if (!dictTarget) {
+        try {
+          const allRes = await this.getCandidates(false);
+          dictTarget = findInputTarget(fieldQuery, allRes?.candidates || []);
+        } catch (_) {}
+      }
+    } else if (directVerbMatch) {
+      const rest = directVerbMatch[1].trim();
+
+      const searchPool = [...candidates];
+      try {
+        const allRes = await this.getCandidates(false);
+        const allList = allRes?.candidates || [];
+        for (const ac of allList) {
+          if (!searchPool.some(c => c.id === ac.id)) searchPool.push(ac);
+        }
+      } catch (_) {}
+
+      // Intentar emparejar prefijos de campos conocidos (ej. "escribe mensaje hola", "escribe nombre juan")
+      for (const c of searchPool) {
+        const cname = (c.name || "").toLowerCase().trim();
+        const tokens = [cname];
+        if (cname.includes("búsqueda") || cname.includes("busqueda")) tokens.push("búsqueda", "busqueda");
+        if (cname.includes("usuario") || cname.includes("nombre")) tokens.push("nombre", "usuario");
+        if (cname.includes("correo") || cname.includes("email")) tokens.push("correo", "email");
+        if (cname.includes("mensaje")) tokens.push("mensaje");
+
+        for (const tok of tokens.filter(Boolean)) {
+          if (rest.toLowerCase().startsWith(tok + " ")) {
+            const potentialText = rest.slice(tok.length).trim();
+            if (potentialText) {
+              dictTarget = c;
+              fieldQuery = tok;
+              textToType = potentialText;
+              break;
+            }
+          }
+        }
+        if (dictTarget) break;
+      }
+
+      if (!dictTarget) {
+        // ¿Primera palabra es un campo o número? (ej. "escribe 4 gracias", "escribe mensaje hola")
+        const spaceIdx = rest.indexOf(" ");
+        if (spaceIdx > 0) {
+          const firstWord = rest.slice(0, spaceIdx).trim();
+          const found = findInputTarget(firstWord, searchPool);
+          if (found) {
+            dictTarget = found;
+            fieldQuery = firstWord;
+            textToType = rest.slice(spaceIdx + 1).trim();
+          }
+        }
+      }
+
+      // Si no emparejó ningún campo específico, es dictado directo en el elemento con foco
+      if (!dictTarget && rest) {
+        textToType = rest;
+        dictTarget = null;
+      }
+    }
+
+    if (textToType !== null) {
+      if (dictTarget) {
+        logDebug(`Dictado en campo: "${textToType}" -> ${dictTarget.name || dictTarget.role} (ID ${dictTarget.id})`);
+        await this.setInputValue(dictTarget.id, textToType, false, false);
         showNativeChromeHUD(topWin, {
           success: true,
           transcript,
-          label: `"${textToType}" en ${targetCandidate.name || "campo"}`,
+          label: `"${textToType}" en ${dictTarget.name || fieldQuery || "campo"}`,
           latencyMs: 0.05,
         });
         return {
           success: true,
           action: "dictation_field",
-          targetId: targetCandidate.id,
-          fieldName: targetCandidate.name,
+          targetId: dictTarget.id,
+          fieldName: dictTarget.name,
           value: textToType,
         };
       } else {
-        logDebug(`Campo "${fieldQuery}" no encontrado para dictado.`);
+        logDebug(`Dictado directo en foco: "${textToType}"`);
+        await this.setInputValue(null, textToType, false, false);
         showNativeChromeHUD(topWin, {
-          success: false,
+          success: true,
           transcript,
-          label: `Campo "${fieldQuery}" no encontrado`,
+          label: `Dictado: "${textToType}"`,
           latencyMs: 0.05,
         });
-        return {
-          success: false,
-          action: "dictation_field_not_found",
-          query: fieldQuery,
-        };
+        return { success: true, action: "dictation_direct", value: textToType };
       }
     }
 
-    const clearSpecificMatch = transcript.match(/^(?:borrar|limpiar|vaciar)\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+)$/i);
+    const clearSpecificMatch = transcript.match(/^(?:borrar|borra|limpiar|limpia|vaciar|vacia)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+)?([a-z0-9ñáéíóú\s_-]+)$/i);
     if (clearSpecificMatch && clearSpecificMatch[1]) {
       const fieldQuery = clearSpecificMatch[1].trim();
-      const targetCandidate = findInputTarget(fieldQuery, candidates);
+      let targetCandidate = findInputTarget(fieldQuery, candidates);
+      if (!targetCandidate) {
+        try {
+          const allRes = await this.getCandidates(false);
+          targetCandidate = findInputTarget(fieldQuery, allRes?.candidates || []);
+        } catch (_) {}
+      }
       if (targetCandidate) {
         logDebug(`Limpiar campo: ${targetCandidate.name || targetCandidate.role} (ID ${targetCandidate.id})`);
         await this.clearInput(targetCandidate.id);
@@ -2166,20 +2275,6 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         });
         return { success: true, action: "clear_field", targetId: targetCandidate.id };
       }
-    }
-
-    const directTypeMatch = transcript.match(/^(?:escribir|dictar)\s+(.+)$/i);
-    if (directTypeMatch && directTypeMatch[1]) {
-      const textToType = directTypeMatch[1].trim();
-      logDebug(`Dictado directo en foco: "${textToType}"`);
-      await this.setInputValue(null, textToType, false, false);
-      showNativeChromeHUD(topWin, {
-        success: true,
-        transcript,
-        label: `Dictado: "${textToType}"`,
-        latencyMs: 0.05,
-      });
-      return { success: true, action: "dictation_direct", value: textToType };
     }
 
     if (candidates.length === 0) {
@@ -2252,8 +2347,8 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       }
     }
 
-    // 3. Si es modo visual, pintar los badges flotantes
-    if (mode === "visual-overlay" || mode === "both") {
+    // 3. Si el modo visual está activo o el usuario encendió los badges, actualizarlos
+    if (mode === "visual-overlay" || topWin?._zenVoiceNavOverlayActive) {
       await this.showVisualOverlay(candidates);
     }
 
