@@ -52,6 +52,34 @@ function getVoiceNavMode(overrideMode = null) {
   }
 }
 
+let _PlacesUtils = null;
+function getPlacesUtils() {
+  if (!_PlacesUtils) {
+    try {
+      _PlacesUtils = ChromeUtils.importESModule("resource://gre/modules/PlacesUtils.sys.mjs").PlacesUtils;
+    } catch (_) {
+      try {
+        _PlacesUtils = Services.wm?.getMostRecentWindow("navigator:browser")?.PlacesUtils;
+      } catch (_) {}
+    }
+  }
+  return _PlacesUtils;
+}
+
+let _DownloadsCommon = null;
+function getDownloadsCommon() {
+  if (!_DownloadsCommon) {
+    try {
+      _DownloadsCommon = ChromeUtils.importESModule("resource:///modules/DownloadsCommon.sys.mjs").DownloadsCommon;
+    } catch (_) {
+      try {
+        _DownloadsCommon = Services.wm?.getMostRecentWindow("navigator:browser")?.DownloadsCommon;
+      } catch (_) {}
+    }
+  }
+  return _DownloadsCommon;
+}
+
 /**
  * Resuelve una intención de navegación hacia un sitio web o consulta web.
  */
@@ -1115,7 +1143,7 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // 5. Búsqueda Web (ej. "buscar noticias de tecnología", "busca recetas fáciles")
-  const searchMatch = text.match(/^(?:buscar|busca)(?:\s+en\s+google|\s+en\s+la\s+web)?\s+(.+)$/i);
+  const searchMatch = text.match(/^(?:buscar|busca)(?:\s+en\s+google|\s+en\s+la\s+web)?(?!\s+(?:en\s+)?(?:los\s+)?marcador(?:es)?|\s+(?:en\s+)?(?:el\s+)?historial)\s+(.+)$/i);
   if (searchMatch && searchMatch[1]) {
     const query = searchMatch[1].trim();
     logDebug(`Comando global detectado: Búsqueda web para "${query}"`);
@@ -1126,9 +1154,15 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // 6. Modos Nativos de Zen y Firefox
-  if (/^modo\s+lectura$|^activar\s+lectura$|^vista\s+lectura$/i.test(text)) {
+  if (/^(?:modo\s+lectura|activar\s+(?:modo\s+)?lectura|vista\s+lectura|alternar\s+modo\s+lectura|lector)$/i.test(text)) {
     logDebug("Comando global detectado: Modo lectura");
     try {
+      const readerBtn = win.document?.getElementById("reader-mode-button");
+      if (readerBtn && !readerBtn.hidden) {
+        readerBtn.click();
+        notifyHUD(true, "Modo lectura");
+        return { handled: true, action: "toggle_reader_mode" };
+      }
       const browser = gBrowser?.selectedBrowser;
       if (browser) {
         if (win.AboutReaderParent?.toggleReaderMode) {
@@ -1136,10 +1170,15 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
         } else if (browser.toggleReaderMode) {
           browser.toggleReaderMode();
         }
+        notifyHUD(true, "Modo lectura");
+        return { handled: true, action: "toggle_reader_mode" };
       }
-    } catch (_) {}
-    notifyHUD(true, "Modo lectura");
-    return { handled: true, action: "toggle_reader_mode" };
+      notifyHUD(false, "Modo lectura no disponible");
+      return { handled: true, action: "reader_mode_unavailable" };
+    } catch (_) {
+      notifyHUD(false, "Modo lectura no disponible");
+      return { handled: true, action: "reader_mode_unavailable" };
+    }
   }
 
   if (/^pantalla\s+completa$|^pantalla\s+entera$|^salir\s+de\s+pantalla\s+completa$/i.test(text)) {
@@ -1339,7 +1378,302 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     }
   }
 
-  // 7. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
+  // 7. Historial, Marcadores y Descargas por Voz (Opción 5)
+  // 7.1 Marcadores: Marcar / Guardar página actual
+  if (/^(?:marcar(?:\s+esta)?\s+p[aá]gina|guardar\s+(?:en\s+)?marcadores|guardar\s+marcador|a[nñ]adir\s+a\s+marcadores|agregar\s+a\s+marcadores|bookmark(?:\s+page)?)$/i.test(text)) {
+    logDebug("Comando global detectado: Marcar página actual");
+    try {
+      if (win.PlacesCommandHook?.bookmarkPage) {
+        await win.PlacesCommandHook.bookmarkPage();
+      } else if (win.BookmarkingUI?.star) {
+        win.BookmarkingUI.star.click();
+      } else {
+        const pu = getPlacesUtils();
+        if (pu && gBrowser?.selectedBrowser?.currentURI) {
+          const url = gBrowser.selectedBrowser.currentURI.spec;
+          const title = gBrowser.selectedBrowser.contentTitle || url;
+          await pu.bookmarks.insert({
+            parentGuid: pu.bookmarks.unfiledGuid,
+            url,
+            title,
+          });
+        }
+      }
+      notifyHUD(true, "Página guardada en marcadores");
+      return { handled: true, action: "bookmark_page" };
+    } catch (e) {
+      logDebug(`Error al marcar página: ${e}`);
+      notifyHUD(false, "Error al guardar marcador");
+      return { handled: true, action: "bookmark_page_error", error: String(e) };
+    }
+  }
+
+  // 7.2 Marcadores: Eliminar / Quitar marcador de página actual
+  if (/^(?:eliminar|quitar|borrar|remover)\s+marcador(?:\s+de\s+(?:esta\s+)?p[aá]gina)?$|^desmarcar(?:\s+esta)?\s+p[aá]gina$/i.test(text)) {
+    logDebug("Comando global detectado: Eliminar marcador de página actual");
+    try {
+      const pu = getPlacesUtils();
+      const currentUrl = gBrowser?.selectedBrowser?.currentURI?.spec;
+      let removed = false;
+      if (pu && currentUrl) {
+        const bm = await pu.bookmarks.fetch({ url: currentUrl });
+        if (bm?.guid) {
+          await pu.bookmarks.remove(bm.guid);
+          removed = true;
+        }
+      }
+      if (!removed && win.BookmarkingUI?.status === win.BookmarkingUI?.STATUS_STARRED) {
+        win.BookmarkingUI.star?.click();
+        removed = true;
+      }
+      if (removed) {
+        notifyHUD(true, "Marcador eliminado");
+        return { handled: true, action: "unbookmark_page" };
+      } else {
+        notifyHUD(false, "Esta página no está en marcadores");
+        return { handled: true, action: "unbookmark_page_not_found" };
+      }
+    } catch (e) {
+      logDebug(`Error al desmarcar página: ${e}`);
+      notifyHUD(false, "Error al quitar marcador");
+      return { handled: true, action: "unbookmark_error", error: String(e) };
+    }
+  }
+
+  // 7.3 Marcadores: Abrir / Alternar barra lateral o panel
+  if (/^(?:abrir|mostrar|ver|alternar)\s+(?:los\s+)?marcadores$|^(?:barra\s+lateral\s+de\s+marcadores|panel\s+de\s+marcadores)$/i.test(text)) {
+    logDebug("Comando global detectado: Alternar marcadores");
+    try {
+      if (win.SidebarController?.toggle) {
+        win.SidebarController.toggle("viewBookmarksSidebar");
+      } else if (win.PlacesCommandHook?.showPlacesOrganizer) {
+        win.PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
+      }
+      notifyHUD(true, "Marcadores");
+      return { handled: true, action: "toggle_bookmarks_sidebar" };
+    } catch (e) {
+      logDebug(`Error al alternar marcadores: ${e}`);
+    }
+  }
+
+  // 7.4 Marcadores: Abrir Biblioteca / Organizador
+  if (/^(?:biblioteca|organizador|gestor)\s+de\s+marcadores$|^abrir\s+(?:la\s+)?biblioteca\s+de\s+marcadores$/i.test(text)) {
+    logDebug("Comando global detectado: Biblioteca de marcadores");
+    try {
+      if (win.PlacesCommandHook?.showPlacesOrganizer) {
+        win.PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
+      }
+      notifyHUD(true, "Biblioteca de marcadores");
+      return { handled: true, action: "open_bookmarks_organizer" };
+    } catch (e) {
+      logDebug(`Error al abrir biblioteca de marcadores: ${e}`);
+    }
+  }
+
+  // 7.5 Marcadores: Alternar barra de marcadores (toolbar)
+  if (/^(?:barra\s+de\s+marcadores|mostrar\s+barra\s+de\s+marcadores|ocultar\s+barra\s+de\s+marcadores|alternar\s+barra\s+de\s+marcadores)$/i.test(text)) {
+    logDebug("Comando global detectado: Alternar barra de marcadores");
+    try {
+      if (win.BookmarkingUI?.toggleBookmarksToolbar) {
+        win.BookmarkingUI.toggleBookmarksToolbar("shortcut");
+      }
+      notifyHUD(true, "Barra de marcadores");
+      return { handled: true, action: "toggle_bookmarks_toolbar" };
+    } catch (e) {
+      logDebug(`Error en barra de marcadores: ${e}`);
+    }
+  }
+
+  // 7.6 Marcadores: Buscar en marcadores
+  const bmSearchMatch = text.match(/^(?:buscar\s+en\s+marcadores|buscar\s+marcador(?:es)?)\s+(.+)$/i);
+  if (bmSearchMatch && bmSearchMatch[1]) {
+    const term = bmSearchMatch[1].trim();
+    logDebug(`Comando global detectado: Buscar en marcadores "${term}"`);
+    try {
+      if (win.gURLBar) {
+        win.gURLBar.search("* " + term, { searchModeEntry: "bookmarkmenu" });
+        notifyHUD(true, `Buscando en marcadores: ${term}`);
+        return { handled: true, action: "search_bookmarks", query: term };
+      }
+    } catch (e) {
+      logDebug(`Error al buscar en marcadores: ${e}`);
+    }
+  }
+
+  // 7.7 Marcadores: Abrir marcador específico por nombre (ej. "abrir marcador github", "marcador youtube")
+  const openBmMatch = text.match(/^(?:abrir\s+marcador|ir\s+a\s+marcador|marcador)\s+(.+)$/i);
+  if (openBmMatch && openBmMatch[1]) {
+    const rawTarget = openBmMatch[1].trim();
+    logDebug(`Comando global detectado: Abrir marcador "${rawTarget}"`);
+    try {
+      const pu = getPlacesUtils();
+      if (pu?.bookmarks?.search) {
+        const results = await pu.bookmarks.search({ query: rawTarget });
+        if (results && results.length > 0) {
+          const lower = rawTarget.toLowerCase();
+          let best = results.find(b => b.title && b.title.toLowerCase() === lower);
+          if (!best) {
+            best = results.find(b => b.title && b.title.toLowerCase().includes(lower));
+          }
+          if (!best) {
+            best = results[0];
+          }
+          const targetUrl = best.url ? (best.url.href || best.url.spec || best.url.toString()) : null;
+          if (targetUrl) {
+            openUrlInBrowser(win, targetUrl);
+            notifyHUD(true, `Marcador: ${best.title || rawTarget}`);
+            return { handled: true, action: "open_bookmark", title: best.title, url: targetUrl };
+          }
+        }
+      }
+      notifyHUD(false, `Marcador "${rawTarget}" no encontrado`);
+      return { handled: true, action: "bookmark_not_found", query: rawTarget };
+    } catch (e) {
+      logDebug(`Error al abrir marcador: ${e}`);
+    }
+  }
+
+  // 7.8 Historial: Abrir / Alternar barra lateral o panel
+  if (/^(?:abrir|mostrar|ver|alternar)\s+(?:el\s+)?historial$|^(?:barra\s+lateral\s+de\s+historial|panel\s+de\s+historial)$/i.test(text)) {
+    logDebug("Comando global detectado: Alternar historial");
+    try {
+      if (win.SidebarController?.toggle) {
+        win.SidebarController.toggle("viewHistorySidebar");
+      } else if (win.PlacesCommandHook?.showPlacesOrganizer) {
+        win.PlacesCommandHook.showPlacesOrganizer("History");
+      }
+      notifyHUD(true, "Historial");
+      return { handled: true, action: "toggle_history_sidebar" };
+    } catch (e) {
+      logDebug(`Error al alternar historial: ${e}`);
+    }
+  }
+
+  // 7.9 Historial: Abrir Biblioteca / Organizador
+  if (/^(?:biblioteca|organizador|gestor)\s+de\s+historial$|^abrir\s+(?:la\s+)?biblioteca\s+de\s+historial$/i.test(text)) {
+    logDebug("Comando global detectado: Biblioteca de historial");
+    try {
+      if (win.PlacesCommandHook?.showPlacesOrganizer) {
+        win.PlacesCommandHook.showPlacesOrganizer("History");
+      }
+      notifyHUD(true, "Biblioteca de historial");
+      return { handled: true, action: "open_history_organizer" };
+    } catch (e) {
+      logDebug(`Error al abrir biblioteca de historial: ${e}`);
+    }
+  }
+
+  // 7.10 Historial: Buscar en historial (ej. "buscar en historial firefox", "historial zen")
+  const histSearchMatch = text.match(/^(?:buscar\s+en\s+(?:el\s+)?historial|buscar\s+historial|historial)\s+(.+)$/i);
+  if (histSearchMatch && histSearchMatch[1]) {
+    const term = histSearchMatch[1].trim();
+    logDebug(`Comando global detectado: Buscar en historial "${term}"`);
+    try {
+      if (win.gURLBar) {
+        win.gURLBar.search("^ " + term, { searchModeEntry: "historymenu" });
+        notifyHUD(true, `Buscando en historial: ${term}`);
+        return { handled: true, action: "search_history", query: term };
+      }
+    } catch (e) {
+      logDebug(`Error al buscar en historial: ${e}`);
+    }
+  }
+
+  // 7.11 Historial: Limpiar historial reciente
+  if (/^(?:limpiar|borrar|vaciar)\s+(?:el\s+)?historial(?:\s+reciente)?$/i.test(text)) {
+    logDebug("Comando global detectado: Limpiar historial reciente");
+    try {
+      if (win.Sanitizer?.showUI) {
+        win.Sanitizer.showUI(win);
+      } else {
+        win.openDialog(
+          "chrome://browser/content/sanitize.xhtml",
+          "Sanitize",
+          "chrome,titlebar,dialog=yes,modal=yes,centerscreen"
+        );
+      }
+      notifyHUD(true, "Limpiar historial");
+      return { handled: true, action: "clear_history_dialog" };
+    } catch (e) {
+      logDebug(`Error al abrir diálogo de limpiar historial: ${e}`);
+    }
+  }
+
+  // 7.12 Descargas: Abrir Panel / Vista de descargas
+  if (/^(?:abrir|mostrar|ver)\s+(?:las\s+)?descargas$|^(?:panel\s+de\s+descargas|mis\s+descargas)$/i.test(text)) {
+    logDebug("Comando global detectado: Abrir panel de descargas");
+    try {
+      if (win.BrowserCommands?.downloadsUI) {
+        win.BrowserCommands.downloadsUI();
+      } else if (win.DownloadsPanel?.showDownloadsHistory) {
+        win.DownloadsPanel.showDownloadsHistory();
+      } else if (win.PlacesCommandHook?.showPlacesOrganizer) {
+        win.PlacesCommandHook.showPlacesOrganizer("Downloads");
+      }
+      notifyHUD(true, "Descargas");
+      return { handled: true, action: "open_downloads_ui" };
+    } catch (e) {
+      logDebug(`Error al abrir descargas: ${e}`);
+    }
+  }
+
+  // 7.13 Descargas: Biblioteca / Página completa de descargas
+  if (/^(?:biblioteca|p[aá]gina|gestor)\s+de\s+descargas$|^abrir\s+(?:la\s+)?biblioteca\s+de\s+descargas$/i.test(text)) {
+    logDebug("Comando global detectado: Biblioteca de descargas");
+    try {
+      openUrlInBrowser(win, "about:downloads");
+      notifyHUD(true, "Biblioteca de descargas");
+      return { handled: true, action: "open_downloads_page" };
+    } catch (e) {
+      logDebug(`Error al abrir página de descargas: ${e}`);
+    }
+  }
+
+  // 7.14 Descargas: Limpiar descargas finalizadas
+  if (/^(?:limpiar|borrar|vaciar)\s+(?:las\s+)?descargas(?:\s+completadas|\s+finalizadas)?$/i.test(text)) {
+    logDebug("Comando global detectado: Limpiar descargas");
+    try {
+      const dc = getDownloadsCommon();
+      if (dc?.getData) {
+        dc.getData(win).removeFinished();
+      } else if (win.document?.getElementById("downloadsCmd_clearList")) {
+        win.document.getElementById("downloadsCmd_clearList").doCommand();
+      }
+      notifyHUD(true, "Descargas limpiadas");
+      return { handled: true, action: "clear_downloads" };
+    } catch (e) {
+      logDebug(`Error al limpiar descargas: ${e}`);
+    }
+  }
+
+  // 7.15 Extras: Guardar página / Imprimir
+  if (/^(?:guardar\s+p[aá]gina|guardar\s+como)$/i.test(text)) {
+    logDebug("Comando global detectado: Guardar página");
+    try {
+      if (win.saveBrowser && gBrowser?.selectedBrowser) {
+        win.saveBrowser(gBrowser.selectedBrowser);
+        notifyHUD(true, "Guardar página");
+        return { handled: true, action: "save_page" };
+      }
+    } catch (e) {
+      logDebug(`Error al guardar página: ${e}`);
+    }
+  }
+
+  if (/^(?:imprimir\s+p[aá]gina|imprimir)$/i.test(text)) {
+    logDebug("Comando global detectado: Imprimir");
+    try {
+      if (win.PrintUtils?.startPrintWindow && gBrowser?.selectedBrowser?.browsingContext) {
+        win.PrintUtils.startPrintWindow(gBrowser.selectedBrowser.browsingContext);
+        notifyHUD(true, "Imprimir");
+        return { handled: true, action: "print_page" };
+      }
+    } catch (e) {
+      logDebug(`Error al imprimir: ${e}`);
+    }
+  }
+
+  // 8. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
   const navMatch = text.match(/^(?:ir\s+a|abrir|navegar\s+a|entrar\s+a)\s+(.+)$/i);
   if (navMatch && navMatch[1]) {
     const target = navMatch[1].trim();
