@@ -268,15 +268,29 @@
 
       <!-- Formularios & Búsqueda -->
       <div class="card">
-        <h2>🔍 Búsqueda y Campos</h2>
-        <div class="form-group">
-          <label for="search-input">Campo de Búsqueda Global</label>
-          <input type="search" id="search-input" placeholder="Escribe o pide por voz 'buscar'..." onfocus="logAction('Enfocado campo de búsqueda')">
-        </div>
-        <div class="form-group">
-          <label for="username-input">Nombre de Usuario</label>
-          <input type="text" id="username-input" placeholder="Pide por voz 'nombre de usuario'..." onfocus="logAction('Enfocado campo de usuario')">
-        </div>
+        <h2>🔍 Búsqueda y Campos de Formulario</h2>
+        <form id="test-form" onsubmit="event.preventDefault(); logAction('Formulario enviado');">
+          <div class="form-group">
+            <label for="search-input">Campo de Búsqueda Global</label>
+            <input type="search" id="search-input" name="busqueda" placeholder="Buscar en la web..." onfocus="logAction('Enfocado campo de búsqueda')" oninput="logAction('Búsqueda: ' + this.value)">
+          </div>
+          <div class="form-group">
+            <label for="username-input">Nombre de Usuario</label>
+            <input type="text" id="username-input" name="nombre" placeholder="Nombre completo..." onfocus="logAction('Enfocado campo de usuario')" oninput="logAction('Usuario: ' + this.value)">
+          </div>
+          <div class="form-group">
+            <label for="email-input">Correo Electrónico</label>
+            <input type="text" id="email-input" name="correo" placeholder="correo@ejemplo.com" onfocus="logAction('Enfocado campo de correo')" oninput="logAction('Correo: ' + this.value)">
+          </div>
+          <div class="form-group">
+            <label for="message-input">Mensaje</label>
+            <textarea id="message-input" name="mensaje" rows="2" style="width:100%; background:#111822; border:1px solid var(--card-border); padding:10px; border-radius:8px; color:#fff;" placeholder="Escribe tu mensaje aquí..." oninput="logAction('Mensaje: ' + this.value)"></textarea>
+          </div>
+          <div class="button-group" style="margin-top:10px;">
+            <button type="submit" class="primary" id="btn-submit">📤 Enviar Formulario</button>
+            <button type="button" onclick="document.getElementById('test-form').reset(); logAction('Formulario reseteado');">🧹 Limpiar Todo</button>
+          </div>
+        </form>
         <div class="checkbox-group">
           <label><input type="checkbox" id="chk-dark" checked onchange="logAction('Modo oscuro toggle')"> Modo Oscuro</label>
           <label><input type="checkbox" id="chk-auto" onchange="logAction('Auto-guardado toggle')"> Auto-guardado</label>

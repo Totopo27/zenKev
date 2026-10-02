@@ -1225,6 +1225,120 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "unmute_voice" };
   }
 
+  // 6.8. Control Nativo de Zen Spaces / Workspaces (Opción 4)
+  if (/^(?:siguiente\s+espacio|espacio\s+siguiente|avanzar\s+espacio|next\s+(?:space|workspace))$/i.test(text)) {
+    logDebug("Comando global detectado: Siguiente espacio Zen");
+    try {
+      if (win.gZenWorkspaces?.changeWorkspaceShortcut) {
+        await win.gZenWorkspaces.changeWorkspaceShortcut(1);
+      }
+    } catch (e) {
+      logDebug(`Error en siguiente espacio: ${e}`);
+    }
+    notifyHUD(true, "Siguiente espacio");
+    return { handled: true, action: "next_workspace" };
+  }
+
+  if (/^(?:anterior\s+espacio|espacio\s+anterior|retroceder\s+espacio|previous\s+(?:space|workspace))$/i.test(text)) {
+    logDebug("Comando global detectado: Espacio anterior Zen");
+    try {
+      if (win.gZenWorkspaces?.changeWorkspaceShortcut) {
+        await win.gZenWorkspaces.changeWorkspaceShortcut(-1);
+      }
+    } catch (e) {
+      logDebug(`Error en anterior espacio: ${e}`);
+    }
+    notifyHUD(true, "Espacio anterior");
+    return { handled: true, action: "previous_workspace" };
+  }
+
+  if (/^(?:(?:ir\s+al\s+)?primer\s+espacio|espacio\s+inicial)$/i.test(text)) {
+    logDebug("Comando global detectado: Primer espacio Zen");
+    try {
+      const spaces = win.gZenWorkspaces?.getWorkspaces?.() || [];
+      if (spaces.length > 0) {
+        await win.gZenWorkspaces.changeWorkspace(spaces[0]);
+      }
+    } catch (e) {
+      logDebug(`Error en primer espacio: ${e}`);
+    }
+    notifyHUD(true, "Primer espacio");
+    return { handled: true, action: "first_workspace" };
+  }
+
+  if (/^(?:(?:ir\s+al\s+)?[uú]ltimo\s+espacio|espacio\s+final)$/i.test(text)) {
+    logDebug("Comando global detectado: Último espacio Zen");
+    try {
+      const spaces = win.gZenWorkspaces?.getWorkspaces?.() || [];
+      if (spaces.length > 0) {
+        await win.gZenWorkspaces.changeWorkspace(spaces[spaces.length - 1]);
+      }
+    } catch (e) {
+      logDebug(`Error en último espacio: ${e}`);
+    }
+    notifyHUD(true, "Último espacio");
+    return { handled: true, action: "last_workspace" };
+  }
+
+  if (/^(?:nuevo|crear|abrir)\s+espacio$/i.test(text)) {
+    logDebug("Comando global detectado: Crear nuevo espacio Zen");
+    try {
+      if (win.gZenWorkspaces?.openWorkspaceCreation) {
+        win.gZenWorkspaces.openWorkspaceCreation();
+      }
+    } catch (e) {
+      logDebug(`Error al abrir creación de espacio: ${e}`);
+    }
+    notifyHUD(true, "Crear espacio");
+    return { handled: true, action: "create_workspace" };
+  }
+
+  if (/^(?:cerrar\s+pesta[nñ]as\s+del\s+espacio|limpiar\s+espacio)$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar pestañas no ancladas del espacio");
+    try {
+      if (win.gZenWorkspaces?.closeAllUnpinnedTabs) {
+        await win.gZenWorkspaces.closeAllUnpinnedTabs();
+      }
+    } catch (e) {
+      logDebug(`Error en closeAllUnpinnedTabs: ${e}`);
+    }
+    notifyHUD(true, "Pestañas del espacio cerradas");
+    return { handled: true, action: "close_workspace_tabs" };
+  }
+
+  const spaceMatch = text.match(/^(?:(?:ir\s+al|cambiar\s+al|pasar\s+al)\s+)?espacio\s+(?:n[uú]mero\s+|#)?(.+)$/i);
+  if (spaceMatch && spaceMatch[1]) {
+    const rawTarget = spaceMatch[1].trim().toLowerCase();
+    logDebug(`Comando global detectado: Cambiar a espacio "${rawTarget}"`);
+    try {
+      const spaces = win.gZenWorkspaces?.getWorkspaces?.() || [];
+      let targetSpace = null;
+      let spaceNum = null;
+      if (/^[0-9]+$/.test(rawTarget)) {
+        spaceNum = parseInt(rawTarget, 10);
+      } else if (WORD_TO_NUMBER[rawTarget] !== undefined) {
+        spaceNum = WORD_TO_NUMBER[rawTarget];
+      }
+
+      if (spaceNum !== null && spaceNum >= 1 && spaceNum <= spaces.length) {
+        targetSpace = spaces[spaceNum - 1];
+      } else {
+        targetSpace = spaces.find(s => s.name?.toLowerCase().includes(rawTarget));
+      }
+
+      if (targetSpace) {
+        await win.gZenWorkspaces.changeWorkspace(targetSpace);
+        notifyHUD(true, `Espacio: ${targetSpace.name}`);
+        return { handled: true, action: "switch_workspace", name: targetSpace.name };
+      } else {
+        notifyHUD(false, `Espacio "${rawTarget}" no encontrado`);
+        return { handled: true, action: "workspace_not_found", query: rawTarget };
+      }
+    } catch (e) {
+      logDebug(`Error al cambiar de espacio: ${e}`);
+    }
+  }
+
   // 7. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
   const navMatch = text.match(/^(?:ir\s+a|abrir|navegar\s+a|entrar\s+a)\s+(.+)$/i);
   if (navMatch && navMatch[1]) {
@@ -1464,6 +1578,62 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
   }
 
   /**
+   * Dictado Inteligente: escribe o concatena texto en un campo de entrada.
+   */
+  async setInputValue(targetId, value, append = false, submit = false) {
+    try {
+      return await this.sendQuery("ZenVoiceNav:SetInputValue", {
+        targetId: targetId ? String(targetId) : null,
+        value,
+        append,
+        submit,
+      });
+    } catch (e) {
+      console.error(`[ZenVoiceNavParent] Error en setInputValue:`, e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Limpia un campo de texto en la página.
+   */
+  async clearInput(targetId = null) {
+    try {
+      return await this.sendQuery("ZenVoiceNav:ClearInput", {
+        targetId: targetId ? String(targetId) : null,
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Envía un formulario asociado al campo o página.
+   */
+  async submitForm(targetId = null) {
+    try {
+      return await this.sendQuery("ZenVoiceNav:SubmitForm", {
+        targetId: targetId ? String(targetId) : null,
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Simula la tecla Enter en la página activa.
+   */
+  async pressEnter(targetId = null) {
+    try {
+      return await this.sendQuery("ZenVoiceNav:PressEnter", {
+        targetId: targetId ? String(targetId) : null,
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
    * Procesa un comando de voz completo:
    * 1. Comprueba si es un comando global de navegador (historial, pestañas, scroll, búsqueda, URLs).
    * 2. Si no es global, extrae candidatos AOM podados del Child.
@@ -1492,6 +1662,28 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         return globalRes;
       }
 
+      // 1.5. Acciones directas de formulario sin requerir candidatos previos (Enter, Submit, Limpiar campo)
+      if (/^(?:(?:presionar|pulsar|dar|hacer)\s+)?enter$/i.test(transcript.trim())) {
+        logDebug("Comando de formulario: Presionar enter");
+        await this.pressEnter(null);
+        showNativeChromeHUD(topWin, { success: true, transcript, label: "Enter", latencyMs: 0.05 });
+        return { success: true, action: "press_enter" };
+      }
+
+      if (/^(?:enviar(?:\s+formulario)?|submit)$/i.test(transcript.trim())) {
+        logDebug("Comando de formulario: Enviar formulario");
+        await this.submitForm(null);
+        showNativeChromeHUD(topWin, { success: true, transcript, label: "Enviar formulario", latencyMs: 0.05 });
+        return { success: true, action: "submit_form" };
+      }
+
+      if (/^(?:borrar|limpiar|vaciar)\s+campo$/i.test(transcript.trim())) {
+        logDebug("Comando de formulario: Limpiar campo enfocado");
+        await this.clearInput(null);
+        showNativeChromeHUD(topWin, { success: true, transcript, label: "Campo borrado", latencyMs: 0.05 });
+        return { success: true, action: "clear_input" };
+      }
+
       const mode = getVoiceNavMode();
       logDebug(`Iniciando processVoiceCommand en página: "${transcript}", modo: ${mode}`);
 
@@ -1503,6 +1695,93 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       logDebug(`getCandidates retornó ${candidates.length} elementos`);
     } catch (e) {
       logDebug(`Error en getCandidates: ${e}`);
+    }
+
+    // Helper de resolución de campos de entrada (por índice numérico o coincidencia léxica)
+    function findInputTarget(query, list) {
+      if (!query) return null;
+      const clean = query.trim().toLowerCase();
+      const num = parseNumericSelection(clean);
+      if (num !== null && num >= 1 && num <= list.length) {
+        return list[num - 1];
+      }
+      const inputs = list.filter(c => c.is_input || c.role_id === 3 || c.role?.includes("entry") || c.role?.includes("text") || c.role?.includes("input"));
+      const pool = inputs.length > 0 ? inputs : list;
+      return pool.find(c => c.name && c.name.toLowerCase() === clean) ||
+             pool.find(c => c.name && c.name.toLowerCase().includes(clean)) ||
+             pool.find(c => c.description && c.description.toLowerCase().includes(clean)) ||
+             null;
+    }
+
+    // 2.0. Dictado Inteligente en Campos de Formulario (Opción 2)
+    const typeInMatch = transcript.match(/^(?:escribir|dictar|poner|introducir)\s+(.+?)\s+en\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+)$/i);
+    const fillWithMatch = transcript.match(/^(?:rellenar|llenar)\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+?)\s+con\s+(.+)$/i);
+    if (typeInMatch || fillWithMatch) {
+      const textToType = typeInMatch ? typeInMatch[1].trim() : fillWithMatch[2].trim();
+      const fieldQuery = typeInMatch ? typeInMatch[2].trim() : fillWithMatch[1].trim();
+
+      const targetCandidate = findInputTarget(fieldQuery, candidates);
+      if (targetCandidate) {
+        logDebug(`Dictado en campo: "${textToType}" -> ${targetCandidate.name || targetCandidate.role} (ID ${targetCandidate.id})`);
+        await this.setInputValue(targetCandidate.id, textToType, false, false);
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript,
+          label: `"${textToType}" en ${targetCandidate.name || "campo"}`,
+          latencyMs: 0.05,
+        });
+        return {
+          success: true,
+          action: "dictation_field",
+          targetId: targetCandidate.id,
+          fieldName: targetCandidate.name,
+          value: textToType,
+        };
+      } else {
+        logDebug(`Campo "${fieldQuery}" no encontrado para dictado.`);
+        showNativeChromeHUD(topWin, {
+          success: false,
+          transcript,
+          label: `Campo "${fieldQuery}" no encontrado`,
+          latencyMs: 0.05,
+        });
+        return {
+          success: false,
+          action: "dictation_field_not_found",
+          query: fieldQuery,
+        };
+      }
+    }
+
+    const clearSpecificMatch = transcript.match(/^(?:borrar|limpiar|vaciar)\s+(?:el\s+campo\s+|el\s+|la\s+)?(.+)$/i);
+    if (clearSpecificMatch && clearSpecificMatch[1]) {
+      const fieldQuery = clearSpecificMatch[1].trim();
+      const targetCandidate = findInputTarget(fieldQuery, candidates);
+      if (targetCandidate) {
+        logDebug(`Limpiar campo: ${targetCandidate.name || targetCandidate.role} (ID ${targetCandidate.id})`);
+        await this.clearInput(targetCandidate.id);
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript,
+          label: `Campo ${targetCandidate.name || ""} limpiado`,
+          latencyMs: 0.05,
+        });
+        return { success: true, action: "clear_field", targetId: targetCandidate.id };
+      }
+    }
+
+    const directTypeMatch = transcript.match(/^(?:escribir|dictar)\s+(.+)$/i);
+    if (directTypeMatch && directTypeMatch[1]) {
+      const textToType = directTypeMatch[1].trim();
+      logDebug(`Dictado directo en foco: "${textToType}"`);
+      await this.setInputValue(null, textToType, false, false);
+      showNativeChromeHUD(topWin, {
+        success: true,
+        transcript,
+        label: `Dictado: "${textToType}"`,
+        latencyMs: 0.05,
+      });
+      return { success: true, action: "dictation_direct", value: textToType };
     }
 
     if (candidates.length === 0) {

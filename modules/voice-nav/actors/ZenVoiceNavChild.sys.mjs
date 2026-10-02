@@ -116,6 +116,23 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         this.#nodeCache.clear();
         return { success: true };
 
+      case "ZenVoiceNav:SetInputValue":
+        return this.#setInputValue(
+          message.data?.targetId,
+          message.data?.value ?? "",
+          message.data?.append ?? false,
+          message.data?.submit ?? false
+        );
+
+      case "ZenVoiceNav:ClearInput":
+        return this.#clearInput(message.data?.targetId);
+
+      case "ZenVoiceNav:SubmitForm":
+        return this.#submitForm(message.data?.targetId);
+
+      case "ZenVoiceNav:PressEnter":
+        return this.#pressEnter(message.data?.targetId);
+
       default:
         return { error: `Mensaje desconocido: ${message.name}` };
     }
@@ -161,16 +178,38 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         const id = accNode.uniqueID;
         this.#nodeCache.set(String(id), accNode);
 
+        let candidateName = accNode.name?.trim() || "";
+        let isInput = role === Ci.nsIAccessibleRole.ROLE_ENTRY;
+        if (accNode.DOMNode) {
+          const d = accNode.DOMNode;
+          const tag = d.tagName?.toUpperCase();
+          if (tag === "INPUT" || tag === "TEXTAREA" || d.isContentEditable || d.getAttribute?.("role") === "textbox") {
+            isInput = true;
+          }
+          if (!candidateName && d.placeholder) candidateName = d.placeholder.trim();
+          if (!candidateName && d.labels && d.labels.length > 0) candidateName = d.labels[0].textContent?.trim() || "";
+          if (!candidateName && d.id) {
+            try {
+              const lbl = doc.querySelector(`label[for="${CSS.escape(d.id)}"]`);
+              if (lbl) candidateName = lbl.textContent?.trim() || "";
+            } catch (_) {}
+          }
+          if (!candidateName && d.getAttribute?.("aria-label")) candidateName = d.getAttribute("aria-label").trim();
+          if (!candidateName && d.name) candidateName = d.name.trim();
+        }
+
         candidates.push({
           id: String(id),
           role_id: role,
           roleId: role,
           role: this.accService.getStringRole(role),
-          name: accNode.name?.trim() || "",
+          name: candidateName,
           description: accNode.description?.trim() || "",
           bounds,
           is_visible: isVisible,
           isVisible,
+          is_input: isInput,
+          isInput,
           has_default_action: accNode.actionCount > 0,
           hasDefaultAction: accNode.actionCount > 0,
         });
@@ -179,7 +218,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
 
     // Fallback híbrido: si AOM no devolvió candidatos, extraer directo de DOM
     if (candidates.length === 0 && doc.querySelectorAll) {
-      const domElements = doc.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [tabindex='0']");
+      const domElements = doc.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [role='textbox'], [contenteditable='true'], [tabindex='0']");
       let domIdx = 1;
       for (const el of domElements) {
         const rect = el.getBoundingClientRect();
@@ -189,7 +228,18 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         if (onlyVisible && !isVisible) continue;
 
         const id = `dom-${domIdx++}`;
-        const name = (el.innerText || el.value || el.getAttribute("aria-label") || el.title || el.placeholder || "").trim();
+        const tag = el.tagName.toUpperCase();
+        const isInput = tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable || el.getAttribute("role") === "textbox";
+        let name = (el.innerText || el.value || el.getAttribute("aria-label") || el.title || el.placeholder || "").trim();
+        if (!name && el.labels && el.labels.length > 0) name = el.labels[0].textContent?.trim() || "";
+        if (!name && el.id) {
+          try {
+            const lbl = doc.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+            if (lbl) name = lbl.textContent?.trim() || "";
+          } catch (_) {}
+        }
+        if (!name && el.name) name = el.name.trim();
+
         const bounds = {
           x: Math.round(rect.left),
           y: Math.round(rect.top),
@@ -201,14 +251,16 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
 
         candidates.push({
           id,
-          role_id: 1,
-          roleId: 1,
+          role_id: isInput ? 3 : 1,
+          roleId: isInput ? 3 : 1,
           role: el.tagName.toLowerCase(),
           name,
           description: el.getAttribute("aria-description") || "",
           bounds,
           is_visible: isVisible,
           isVisible,
+          is_input: isInput,
+          isInput,
           has_default_action: true,
           hasDefaultAction: true,
         });
@@ -418,6 +470,167 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         this.#highlightElement(accNode.DOMNode);
       }
 
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Dictado Inteligente: escribe o concatena texto en un campo de entrada o elemento editable.
+   * Dispara eventos input y change compatibles con React, Vue, Angular y Vanilla JS.
+   */
+  #setInputValue(targetId, value, append = false, submit = false) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement && this.document.activeElement !== this.document.body) {
+      el = this.document.activeElement;
+    }
+    if (!el) {
+      // Fallback al primer input o textarea visible
+      el = this.document?.querySelector("input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [contenteditable='true']");
+    }
+    if (!el) {
+      return { success: false, error: "No se encontró campo de texto ni elemento enfocado" };
+    }
+
+    try {
+      el.focus();
+
+      if (el.isContentEditable) {
+        if (append) {
+          el.textContent = (el.textContent ? el.textContent + " " : "") + value;
+        } else {
+          el.textContent = value;
+        }
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+      } else {
+        const finalValue = append && el.value ? `${el.value} ${value}` : value;
+
+        // Llamar descriptor nativo del prototipo para sortear overrides de React/Vue
+        const proto = Object.getPrototypeOf(el);
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(el, finalValue);
+        } else {
+          el.value = finalValue;
+        }
+
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+      }
+
+      this.#highlightElement(el);
+
+      if (submit && el.form) {
+        try {
+          if (typeof el.form.requestSubmit === "function") {
+            el.form.requestSubmit();
+          } else {
+            el.form.submit();
+          }
+        } catch (_) {}
+      }
+
+      return { success: true, targetId, value };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Limpia el contenido de un campo de texto o editable.
+   */
+  #clearInput(targetId) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement && this.document.activeElement !== this.document.body) {
+      el = this.document.activeElement;
+    }
+    if (!el) {
+      return { success: false, error: "No se encontró campo para limpiar" };
+    }
+
+    try {
+      el.focus();
+      if (el.isContentEditable) {
+        el.textContent = "";
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+      } else {
+        const proto = Object.getPrototypeOf(el);
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(el, "");
+        } else {
+          el.value = "";
+        }
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+      }
+      this.#highlightElement(el);
+      return { success: true, targetId };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Envía el formulario asociado al campo o al documento activo.
+   */
+  #submitForm(targetId) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement) {
+      el = this.document.activeElement;
+    }
+    const form = el?.form || this.document?.querySelector("form");
+    if (!form) {
+      return this.#pressEnter(targetId);
+    }
+
+    try {
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Simula la pulsación de la tecla Enter.
+   */
+  #pressEnter(targetId) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement) {
+      el = this.document.activeElement;
+    }
+    if (!el) el = this.document?.body;
+    if (!el) return { success: false, error: "No hay elemento disponible para enter" };
+
+    try {
+      const evOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      el.dispatchEvent(new this.contentWindow.KeyboardEvent("keydown", evOpts));
+      el.dispatchEvent(new this.contentWindow.KeyboardEvent("keypress", evOpts));
+      el.dispatchEvent(new this.contentWindow.KeyboardEvent("keyup", evOpts));
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
