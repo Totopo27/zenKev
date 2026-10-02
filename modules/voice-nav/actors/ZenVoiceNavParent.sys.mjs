@@ -215,6 +215,220 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
 Services.zenShowVoiceHUD = showNativeChromeHUD;
 
 /**
+ * Genera el icono SVG data URI para el botón de voz según su estado.
+ * @param {"listening" | "muted" | "processing"} state
+ */
+export function getVoiceNavButtonIcon(state = "listening") {
+  let strokeColor = "#10b981"; // Verde esmeralda
+  let centerFill = "#10b981";
+  let pulseElement = `<circle cx="12" cy="8" r="2" fill="${centerFill}"/>`;
+
+  if (state === "muted") {
+    strokeColor = "#94a3b8"; // Gris pizarra silenciado
+    pulseElement = `<line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>`;
+  } else if (state === "processing") {
+    strokeColor = "#c084fc"; // Púrpura brillante
+    centerFill = "#a855f7";
+    pulseElement = `<circle cx="12" cy="8" r="2.5" fill="${centerFill}"><animate attributeName="opacity" values="0.3;1;0.3" dur="0.9s" repeatCount="indefinite"/></circle>`;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+  <line x1="12" x2="12" y1="19" y2="22"/>
+  ${pulseElement}
+</svg>`;
+
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+/**
+ * Actualiza visualmente el estado del botón en todas las ventanas activas.
+ * @param {"listening" | "muted" | "processing"} state
+ */
+export function updateVoiceNavButtonState(state) {
+  Services.zenVoiceNavButtonState = state;
+  const iconUri = getVoiceNavButtonIcon(state);
+
+  try {
+    const windows = Services.wm?.getEnumerator("navigator:browser");
+    if (!windows) return;
+
+    while (windows.hasMoreElements()) {
+      const win = windows.getNext();
+      if (!win || win.closed) continue;
+
+      const btn = win.document?.getElementById("zen-voicenav-button");
+      if (!btn) continue;
+
+      btn.setAttribute("image", iconUri);
+      const icon = btn.querySelector(".toolbarbutton-icon");
+      if (icon) {
+        icon.setAttribute("src", iconUri);
+      }
+
+      if (state === "listening") {
+        btn.setAttribute(
+          "tooltiptext",
+          "Zen Voice Navigator: Escuchando (Clic: alternar overlay [F2] | Shift+Clic: silenciar)"
+        );
+        btn.style.filter = "drop-shadow(0 0 3px rgba(16, 185, 129, 0.45))";
+      } else if (state === "muted") {
+        btn.setAttribute(
+          "tooltiptext",
+          "Zen Voice Navigator: Silenciado (Clic: alternar overlay [F2] | Shift+Clic: activar)"
+        );
+        btn.style.filter = "grayscale(90%) opacity(0.65)";
+      } else if (state === "processing") {
+        btn.setAttribute(
+          "tooltiptext",
+          "Zen Voice Navigator: Procesando orden..."
+        );
+        btn.style.filter = "drop-shadow(0 0 6px rgba(168, 85, 247, 0.8))";
+      }
+    }
+  } catch (err) {
+    logDebug(`Error al actualizar estado del botón: ${err}`);
+  }
+}
+
+// Exponer en Services para consumo global
+Services.zenSetVoiceState = updateVoiceNavButtonState;
+
+let _zenVoiceNavWidgetRegistered = false;
+
+/**
+ * Registra el widget interactivo en CustomizableUI de Zen Browser.
+ */
+export function registerZenVoiceNavWidget() {
+  if (_zenVoiceNavWidgetRegistered) return;
+
+  let cui = null;
+  try {
+    const mod = ChromeUtils.importESModule(
+      "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs"
+    );
+    cui = mod.CustomizableUI;
+  } catch (_) {
+    try {
+      const mod = ChromeUtils.importESModule(
+        "resource:///modules/CustomizableUI.sys.mjs"
+      );
+      cui = mod.CustomizableUI;
+    } catch (_) {
+      const win = Services.wm?.getMostRecentWindow("navigator:browser");
+      cui = win?.CustomizableUI;
+    }
+  }
+
+  if (!cui) {
+    logDebug("No se pudo obtener CustomizableUI para registrar zen-voicenav-button");
+    return;
+  }
+
+  if (cui.getWidget("zen-voicenav-button")) {
+    _zenVoiceNavWidgetRegistered = true;
+    return;
+  }
+
+  try {
+    cui.createWidget({
+      id: "zen-voicenav-button",
+      type: "custom",
+      defaultArea: cui.AREA_NAVBAR,
+      removable: true,
+      label: "Zen Voice Navigator",
+      tooltiptext: "Zen Voice Navigator (Clic: Alternar Overlay [F2] | Shift+Clic: Silenciar)",
+      onBuild(aDocument) {
+        const btn = aDocument.createXULElement("toolbarbutton");
+        btn.id = "zen-voicenav-button";
+        btn.setAttribute("id", "zen-voicenav-button");
+        btn.setAttribute("class", "toolbarbutton-1 chromeclass-toolbar-additional zen-voicenav-button");
+        btn.setAttribute("label", "Zen Voice Navigator");
+        btn.setAttribute(
+          "tooltiptext",
+          "Zen Voice Navigator (Clic: Alternar Overlay [F2] | Shift+Clic: Silenciar)"
+        );
+        btn.setAttribute("removable", "true");
+
+        const state = Services.zenVoiceNavButtonState || "listening";
+        const iconUri = getVoiceNavButtonIcon(state);
+        btn.setAttribute("image", iconUri);
+
+        const icon = aDocument.createXULElement("image");
+        icon.setAttribute("class", "toolbarbutton-icon");
+        icon.setAttribute("src", iconUri);
+        btn.appendChild(icon);
+
+        if (state === "muted") {
+          btn.style.filter = "grayscale(90%) opacity(0.65)";
+        } else if (state === "processing") {
+          btn.style.filter = "drop-shadow(0 0 6px rgba(168, 85, 247, 0.8))";
+        } else {
+          btn.style.filter = "drop-shadow(0 0 3px rgba(16, 185, 129, 0.45))";
+        }
+
+        btn.addEventListener("command", (event) => {
+          const win = aDocument.defaultView;
+          if (!win) return;
+
+          if (event.shiftKey) {
+            const next = Services.zenVoiceNavButtonState === "muted" ? "listening" : "muted";
+            updateVoiceNavButtonState(next);
+            showNativeChromeHUD(win, {
+              success: next === "listening",
+              transcript: next === "listening" ? "Voz reactivada" : "Voz silenciada",
+              label: next === "listening" ? "Escuchando" : "Silenciado",
+            });
+            return;
+          }
+
+          if (win.gZenVoiceNav?.toggleOverlay) {
+            win.gZenVoiceNav.toggleOverlay();
+          }
+        });
+
+        btn.addEventListener("click", (event) => {
+          if (event.button === 1) { // Rueda de ratón / clic central
+            event.preventDefault();
+            event.stopPropagation();
+            const win = aDocument.defaultView;
+            const next = Services.zenVoiceNavButtonState === "muted" ? "listening" : "muted";
+            updateVoiceNavButtonState(next);
+            if (win) {
+              showNativeChromeHUD(win, {
+                success: next === "listening",
+                transcript: next === "listening" ? "Voz reactivada" : "Voz silenciada",
+                label: next === "listening" ? "Escuchando" : "Silenciado",
+              });
+            }
+          }
+        });
+
+        return btn;
+      },
+    });
+
+    _zenVoiceNavWidgetRegistered = true;
+    logDebug("Widget zen-voicenav-button registrado con éxito en CustomizableUI");
+
+    // Si aún no está en ningún área, colocarlo en AREA_NAVBAR
+    const placement = cui.getPlacementOfWidget("zen-voicenav-button");
+    if (!placement) {
+      try {
+        cui.addWidgetToArea("zen-voicenav-button", cui.AREA_NAVBAR);
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.error("[ZenVoiceNavParent] Error al registrar widget en CustomizableUI:", err);
+  }
+}
+
+try {
+  registerZenVoiceNavWidget();
+} catch (_) {}
+
+/**
  * Ejecuta comandos globales de nivel de navegador (historial, pestañas, scroll, búsqueda, URLs).
  */
 export async function executeGlobalVoiceCommand(transcript, topWin, actor = null) {
@@ -407,8 +621,12 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 
   if (/^pantalla\s+completa$|^pantalla\s+entera$|^salir\s+de\s+pantalla\s+completa$/i.test(text)) {
     logDebug("Comando global detectado: Pantalla completa");
-    if (typeof win.BrowserFullScreen === "function") {
-      win.BrowserFullScreen();
+    try {
+      if (typeof win.BrowserFullScreen === "function") {
+        win.BrowserFullScreen();
+      }
+    } catch (e) {
+      logDebug(`Error en BrowserFullScreen: ${e}`);
     }
     notifyHUD(true, "Pantalla completa");
     return { handled: true, action: "toggle_fullscreen" };
@@ -416,8 +634,12 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 
   if (/^duplicar\s+pesta[nñ]a$/i.test(text)) {
     logDebug("Comando global detectado: Duplicar pestaña");
-    if (gBrowser?.duplicateTab && gBrowser?.selectedTab) {
-      gBrowser.duplicateTab(gBrowser.selectedTab);
+    try {
+      if (gBrowser?.duplicateTab && gBrowser?.selectedTab) {
+        gBrowser.duplicateTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error al duplicar pestaña (ej. vista no registrada aún): ${e}`);
     }
     notifyHUD(true, "Duplicar pestaña");
     return { handled: true, action: "duplicate_tab" };
@@ -425,8 +647,12 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 
   if (/^(?:silenciar|mutear)(?:\s+pesta[nñ]a)?$|^(?:activar|desmutear)\s+(?:sonido|audio)$/i.test(text)) {
     logDebug("Comando global detectado: Silenciar/Activar audio de pestaña");
-    if (gBrowser?.selectedTab) {
-      gBrowser.toggleMuteTab(gBrowser.selectedTab);
+    try {
+      if (gBrowser?.selectedTab) {
+        gBrowser.toggleMuteTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error en toggleMuteTab: ${e}`);
     }
     notifyHUD(true, "Audio de pestaña alternado");
     return { handled: true, action: "toggle_mute_tab" };
@@ -434,9 +660,13 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 
   if (/^(?:abrir\s+)?descargas$/i.test(text)) {
     logDebug("Comando global detectado: Abrir descargas");
-    if (typeof win.BrowserDownloadsUI === "function") {
-      win.BrowserDownloadsUI();
-    } else {
+    try {
+      if (typeof win.BrowserDownloadsUI === "function") {
+        win.BrowserDownloadsUI();
+      } else {
+        openUrlInBrowser(win, "about:downloads");
+      }
+    } catch (e) {
       openUrlInBrowser(win, "about:downloads");
     }
     notifyHUD(true, "Descargas");
@@ -445,20 +675,43 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 
   if (/^(?:abrir\s+)?historial$/i.test(text)) {
     logDebug("Comando global detectado: Abrir historial");
-    openUrlInBrowser(win, "about:history");
+    try {
+      openUrlInBrowser(win, "about:history");
+    } catch (e) {
+      logDebug(`Error al abrir historial: ${e}`);
+    }
     notifyHUD(true, "Historial");
     return { handled: true, action: "open_history" };
   }
 
   if (/^(?:abrir\s+)?configuraci[oó]n$|^(?:abrir\s+)?ajustes$/i.test(text)) {
     logDebug("Comando global detectado: Abrir configuración");
-    if (typeof win.openPreferences === "function") {
-      win.openPreferences();
-    } else {
+    try {
+      if (typeof win.openPreferences === "function") {
+        win.openPreferences();
+      } else {
+        openUrlInBrowser(win, "about:preferences");
+      }
+    } catch (e) {
       openUrlInBrowser(win, "about:preferences");
     }
     notifyHUD(true, "Configuración");
     return { handled: true, action: "open_preferences" };
+  }
+
+  // 6.5. Control de Estado de Voz (Silenciar / Activar micrófono)
+  if (/^(?:silenciar|desactivar|pausar)\s+voz$/i.test(text)) {
+    logDebug("Comando global detectado: Silenciar voz");
+    updateVoiceNavButtonState("muted");
+    notifyHUD(true, "Voz silenciada");
+    return { handled: true, action: "mute_voice" };
+  }
+
+  if (/^(?:activar|reanudar|desmutear)\s+voz$/i.test(text)) {
+    logDebug("Comando global detectado: Reactivar voz");
+    updateVoiceNavButtonState("listening");
+    notifyHUD(true, "Voz reactivada");
+    return { handled: true, action: "unmute_voice" };
   }
 
   // 7. Ir a URL o Sitio Web (ej. "ir a wikipedia", "abrir youtube", "navegar a github.com")
@@ -478,6 +731,8 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 export function initZenVoiceNav(topWin) {
   if (!topWin || topWin._zenVoiceNavInitialized) return;
   topWin._zenVoiceNavInitialized = true;
+
+  registerZenVoiceNavWidget();
 
   topWin.gZenVoiceNav = {
     getActor: () => {
@@ -510,22 +765,49 @@ export function initZenVoiceNav(topWin) {
       } catch (_) {}
       return actor ? await actor.hideVisualOverlay() : { success: false };
     },
+    toggleMute: () => {
+      const next = Services.zenVoiceNavButtonState === "muted" ? "listening" : "muted";
+      updateVoiceNavButtonState(next);
+      showNativeChromeHUD(topWin, {
+        success: next === "listening",
+        transcript: next === "listening" ? "Voz reactivada" : "Voz silenciada",
+        label: next === "listening" ? "Escuchando" : "Silenciado",
+      });
+      return next;
+    },
+    setButtonState: (state) => {
+      updateVoiceNavButtonState(state);
+    },
     processCommand: async (transcript) => {
-      // 1. Prioridad: Comandos globales del navegador (abrir URLs, búsquedas, pestañas, etc.)
-      const globalRes = await executeGlobalVoiceCommand(transcript, topWin, null);
-      if (globalRes && globalRes.handled) {
-        return globalRes;
+      const wasMuted = Services.zenVoiceNavButtonState === "muted";
+      if (wasMuted) {
+        if (/^(?:activar|reanudar|desmutear)\s+voz$/i.test(transcript.trim())) {
+          return await executeGlobalVoiceCommand(transcript, topWin, null);
+        }
+        logDebug(`Comando ignorado por estar silenciado: "${transcript}"`);
+        return { handled: false, muted: true };
       }
 
-      // 2. Comandos en página interactivos (botones, enlaces, inputs)
-      let actor = null;
+      updateVoiceNavButtonState("processing");
       try {
-        actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
-      } catch (_) {}
-      if (actor) {
-        return await actor.processVoiceCommand(transcript);
+        // 1. Prioridad: Comandos globales del navegador (abrir URLs, búsquedas, pestañas, etc.)
+        const globalRes = await executeGlobalVoiceCommand(transcript, topWin, null);
+        if (globalRes && globalRes.handled) {
+          return globalRes;
+        }
+
+        // 2. Comandos en página interactivos (botones, enlaces, inputs)
+        let actor = null;
+        try {
+          actor = topWin.gBrowser?.selectedBrowser?.browsingContext?.currentWindowGlobal?.getActor("ZenVoiceNav");
+        } catch (_) {}
+        if (actor) {
+          return await actor.processVoiceCommand(transcript);
+        }
+        return { success: false, error: "No actor" };
+      } finally {
+        updateVoiceNavButtonState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
       }
-      return { success: false, error: "No actor" };
     },
     toggleOverlay: async () => {
       let actor = null;
@@ -681,15 +963,26 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async processVoiceCommand(transcript) {
     const topWin = this.browsingContext?.topChromeWindow || Services.wm?.getMostRecentWindow("navigator:browser");
-    
-    // 1. Prioridad: Comandos globales del navegador
-    const globalRes = await executeGlobalVoiceCommand(transcript, topWin, this);
-    if (globalRes && globalRes.handled) {
-      return globalRes;
+
+    const wasMuted = Services.zenVoiceNavButtonState === "muted";
+    if (wasMuted) {
+      if (/^(?:activar|reanudar|desmutear)\s+voz$/i.test(transcript.trim())) {
+        return await executeGlobalVoiceCommand(transcript, topWin, this);
+      }
+      logDebug(`Comando ignorado en actor por estar silenciado: "${transcript}"`);
+      return { handled: false, muted: true };
     }
 
-    const mode = getVoiceNavMode();
-    logDebug(`Iniciando processVoiceCommand en página: "${transcript}", modo: ${mode}`);
+    updateVoiceNavButtonState("processing");
+    try {
+      // 1. Prioridad: Comandos globales del navegador
+      const globalRes = await executeGlobalVoiceCommand(transcript, topWin, this);
+      if (globalRes && globalRes.handled) {
+        return globalRes;
+      }
+
+      const mode = getVoiceNavMode();
+      logDebug(`Iniciando processVoiceCommand en página: "${transcript}", modo: ${mode}`);
 
     // 2. Obtener candidatos interactivos en la página
     let candidates = [];
@@ -771,6 +1064,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       reason: "No se identificó una acción con suficiente confianza",
       decision,
     };
+    } finally {
+      updateVoiceNavButtonState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+    }
   }
 
   /**

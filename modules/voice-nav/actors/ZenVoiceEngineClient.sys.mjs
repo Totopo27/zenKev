@@ -121,6 +121,19 @@ export class ZenVoiceEngineClient {
               const transcript = parsed.transcript || parsed.voice_command || parsed.text;
               logDebug(`Comando en vivo recibido: "${transcript}"`);
 
+              // Si el botón está silenciado y no es orden de activación explícita, ignorar
+              const isMuted = Services.zenVoiceNavButtonState === "muted";
+              const isUnmuteIntent = /^(?:activar|reanudar|desmutear)\s+voz$/i.test(transcript.trim());
+              if (isMuted && !isUnmuteIntent) {
+                logDebug(`Comando ignorado: la navegación por voz está silenciada.`);
+                continue;
+              }
+
+              // Notificar estado al botón de navegación
+              if (typeof Services.zenSetVoiceState === "function") {
+                Services.zenSetVoiceState("processing");
+              }
+
               // Notificar al HUD nativo de la ventana activa
               const activeWin = Services.wm?.getMostRecentWindow("navigator:browser");
               if (activeWin && typeof Services.zenShowVoiceHUD === "function") {
@@ -155,6 +168,10 @@ export class ZenVoiceEngineClient {
                     logDebug(`Actor ZenVoiceNav encontrado en ventana #${count}. Despachando processVoiceCommand...`);
                     actor.processVoiceCommand(transcript).catch((e) => {
                       logDebug(`Error en actor.processVoiceCommand: ${e}`);
+                    }).finally(() => {
+                      if (typeof Services.zenSetVoiceState === "function") {
+                        Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+                      }
                     });
                     dispatched = true;
                     break;
@@ -162,6 +179,10 @@ export class ZenVoiceEngineClient {
                     logDebug(`gZenVoiceNav encontrado en ventana #${count}. Despachando...`);
                     win.gZenVoiceNav.processCommand(transcript).catch((e) => {
                       logDebug(`Error en gZenVoiceNav.processCommand: ${e}`);
+                    }).finally(() => {
+                      if (typeof Services.zenSetVoiceState === "function") {
+                        Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+                      }
                     });
                     dispatched = true;
                     break;
