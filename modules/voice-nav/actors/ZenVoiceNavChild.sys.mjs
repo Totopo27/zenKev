@@ -440,16 +440,44 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       "position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483647;"
     );
 
-    candidates.slice(0, 15).forEach((c, index) => {
+    candidates.slice(0, 30).forEach((c, index) => {
       if (!c.bounds || c.bounds.width <= 0) return;
+      const num = index + 1;
       const badge = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-      badge.textContent = `${index + 1}: ${c.name || c.role}`.slice(0, 20);
-      badge.setAttribute(
-        "style",
-        `position:absolute;left:${Math.max(0, c.bounds.x)}px;top:${Math.max(0, c.bounds.y - 18)}px;` +
-          `background:#0969da;color:#ffffff;font-size:11px;font-family:monospace;font-weight:bold;` +
-          `padding:1px 5px;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,0.3);pointer-events:none;`
-      );
+      badge.setAttribute("data-badge-index", String(num));
+      badge.style.cssText = `
+        position: absolute;
+        left: ${Math.max(0, c.bounds.x)}px;
+        top: ${Math.max(0, c.bounds.y - 22)}px;
+        background: rgba(15, 23, 42, 0.92);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.6);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 10px rgba(56, 189, 248, 0.35);
+        border-radius: 6px;
+        padding: 2px 7px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        pointer-events: none;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      `;
+
+      const numSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+      numSpan.style.cssText =
+        "background: #0284c7; color: #ffffff; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 800;";
+      numSpan.textContent = String(num);
+      badge.appendChild(numSpan);
+
+      const labelSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+      labelSpan.style.cssText =
+        "color: #f1f5f9; font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+      labelSpan.textContent = (c.name || c.role || "item").slice(0, 22);
+      badge.appendChild(labelSpan);
+
       container.appendChild(badge);
     });
 

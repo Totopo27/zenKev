@@ -121,6 +121,127 @@ function openUrlInBrowser(topWin, url) {
 }
 
 /**
+ * Reproduce señales auditivas sintéticas elegantes (Earcons) mediante WebAudio en Gecko.
+ * Cero archivos externos, latencia imperceptible (<1ms) y retroalimentación inmediata.
+ * @param {"success" | "error" | "unrecognized" | "mute" | "unmute"} type
+ * @param {ChromeWindow} topWin
+ */
+export function playEarcon(type = "success", topWin = null) {
+  try {
+    const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
+    if (!win) return;
+
+    let earconsEnabled = true;
+    try {
+      earconsEnabled = Services.prefs.getBoolPref("zen.voicenav.earcons", true);
+    } catch (_) {}
+    if (!earconsEnabled) return;
+
+    const AudioContextClass = win.AudioContext || win.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    if (!win._zenVoiceAudioCtx || win._zenVoiceAudioCtx.state === "closed") {
+      win._zenVoiceAudioCtx = new AudioContextClass();
+    }
+    const ctx = win._zenVoiceAudioCtx;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === "success") {
+      // Arpegio ascendente suave y gratificante: 540Hz -> 840Hz (130ms)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(540, now);
+      osc.frequency.exponentialRampToValueAtTime(840, now + 0.12);
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } else if (type === "error" || type === "unrecognized") {
+      // Tono descendente sordo y discreto: 320Hz -> 210Hz (160ms)
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(210, now + 0.15);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+      osc.start(now);
+      osc.stop(now + 0.17);
+    } else if (type === "mute") {
+      // Tono suave de apagado: 400Hz -> 280Hz (110ms)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(280, now + 0.1);
+      gain.gain.setValueAtTime(0.07, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } else if (type === "unmute") {
+      // Tono brillante de encendido: 480Hz -> 740Hz (130ms)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(480, now);
+      osc.frequency.exponentialRampToValueAtTime(740, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.start(now);
+      osc.stop(now + 0.14);
+    }
+  } catch (_) {}
+}
+
+// Exponer en Services para llamadas globales
+Services.zenPlayVoiceEarcon = playEarcon;
+
+const WORD_TO_NUMBER = {
+  uno: 1, un: 1, una: 1,
+  dos: 2, tres: 3, cuatro: 4, cinco: 5,
+  seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
+  once: 11, doce: 12, trece: 13, catorce: 14, quince: 15,
+  dieciséis: 16, dieciseis: 16, diecisiete: 17, dieciocho: 18,
+  diecinueve: 19, veinte: 20,
+  first: 1, one: 1, two: 2, second: 2,
+  three: 3, third: 3, four: 4, five: 5,
+};
+
+/**
+ * Resuelve si un comando corresponde a una selección numérica directa de un elemento en pantalla.
+ * @param {string} transcript - Texto del comando de voz.
+ * @returns {number|null} - Índice 1-based del número seleccionado o null.
+ */
+export function parseNumericSelection(transcript) {
+  if (!transcript || typeof transcript !== "string") return null;
+  const clean = transcript.trim().toLowerCase();
+
+  // 1. Dígitos arábigos (ej. "1", "el 3", "opcion 4", "click 2", "pulsar 5")
+  const numMatch = clean.match(
+    /^(?:(?:hacer\s+)?(?:clic|click|pulsar|presionar|seleccionar|elegir|escoger)(?:\s+en)?(?:\s+(?:el|la|al))?|opci[oó]n|n[uú]mero|bot[oó]n|enlace|el|la)?\s*#?([0-9]{1,2})$/i
+  );
+  if (numMatch && numMatch[1]) {
+    const val = parseInt(numMatch[1], 10);
+    if (val >= 1 && val <= 99) return val;
+  }
+
+  // 2. Números en palabras (ej. "el dos", "opcion tres", "clic en cuatro")
+  const wordMatch = clean.match(
+    /^(?:(?:hacer\s+)?(?:clic|click|pulsar|presionar|seleccionar|elegir|escoger)(?:\s+en)?(?:\s+(?:el|la|al))?|opci[oó]n|n[uú]mero|bot[oó]n|enlace|el|la)?\s*([a-zñáéíóú]+)$/i
+  );
+  if (wordMatch && wordMatch[1]) {
+    const word = wordMatch[1].trim();
+    if (WORD_TO_NUMBER[word] !== undefined) {
+      return WORD_TO_NUMBER[word];
+    }
+  }
+
+  return null;
+}
+
+/**
  * Renderiza un HUD flotante nativo a nivel de ventana del navegador (Chrome Window).
  * Inmune a problemas de z-index, iframes o páginas especiales (about:newtab, etc.).
  */
@@ -199,6 +320,9 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   hud.style.opacity = "1";
   hud.style.transform = "translateX(-50%) translateY(0)";
 
+  // Feedback auditivo sutil (Earcon)
+  playEarcon(success ? "success" : "error", win);
+
   // Limpiar temporizador previo
   if (win._zenkevChromeHudTimeout) {
     win.clearTimeout(win._zenkevChromeHudTimeout);
@@ -247,7 +371,15 @@ export function getVoiceNavButtonIcon(state = "listening") {
  * @param {"listening" | "muted" | "processing"} state
  */
 export function updateVoiceNavButtonState(state) {
+  const prevState = Services.zenVoiceNavButtonState;
   Services.zenVoiceNavButtonState = state;
+
+  if (state === "muted" && prevState !== "muted") {
+    playEarcon("mute");
+  } else if (state === "listening" && prevState === "muted") {
+    playEarcon("unmute");
+  }
+
   const iconUri = getVoiceNavButtonIcon(state);
 
   try {
@@ -1009,6 +1141,59 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         });
       } catch (_) {}
       return { success: false, reason: "No hay elementos accionables en pantalla" };
+    }
+
+    // 2.1. Atajo O(1) de Selección Numérica Directa (ej. "3", "el 2", "opción 4", "click 1")
+    const selectedNumber = parseNumericSelection(transcript);
+    if (selectedNumber !== null) {
+      logDebug(`Atajo numérico detectado: #${selectedNumber}`);
+      const targetIndex = selectedNumber - 1;
+      if (targetIndex >= 0 && targetIndex < candidates.length) {
+        const target = candidates[targetIndex];
+        logDebug(`Atajo numérico O(1) resuelto: #${selectedNumber} -> ID ${target.id} (${target.name || target.role})`);
+
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript,
+          label: `[#${selectedNumber}] ${target.name || target.role}`,
+          latencyMs: 0.02,
+        });
+
+        try {
+          this.sendAsyncMessage("ZenVoiceNav:LogCommand", {
+            transcript,
+            success: true,
+            decision: {
+              matched_id: target.id,
+              action: "click",
+              confidence: 1.0,
+              latency_ms: 0.02,
+            },
+          });
+        } catch (_) {}
+
+        const actionResult = await this.executeAction(target.id, 0, mode);
+        return {
+          success: true,
+          matchedId: target.id,
+          action: "numeric_select",
+          number: selectedNumber,
+          confidence: 1.0,
+          latencyMs: 0.02,
+          actionResult,
+        };
+      } else {
+        logDebug(`Número #${selectedNumber} fuera de rango (1 a ${candidates.length})`);
+        showNativeChromeHUD(topWin, {
+          success: false,
+          transcript,
+          label: `Número #${selectedNumber} fuera de rango (1-${candidates.length})`,
+        });
+        return {
+          success: false,
+          reason: `Número #${selectedNumber} fuera de rango (1-${candidates.length})`,
+        };
+      }
     }
 
     // 3. Si es modo visual, pintar los badges flotantes
