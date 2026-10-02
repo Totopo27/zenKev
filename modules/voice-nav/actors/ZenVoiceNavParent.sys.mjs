@@ -625,44 +625,435 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "page_reload" };
   }
 
-  // 2. Control de Pestañas
-  if (/^nueva\s+pesta[nñ]a$|^abrir\s+pesta[nñ]a$|^crear\s+pesta[nñ]a$/i.test(text)) {
-    logDebug("Comando global detectado: Nueva pestaña");
-    if (win.BrowserOpenTab) {
-      win.BrowserOpenTab();
-    } else if (gBrowser?.addTrustedTab) {
-      gBrowser.addTrustedTab("about:newtab");
+  // Helper seguro para obtener pestañas abiertas válidas
+  function getOpenTabs() {
+    if (!gBrowser) return [];
+    try {
+      const rawTabs = gBrowser.visibleTabs || gBrowser.tabs || [];
+      return Array.from(rawTabs).filter(t => !t.hidden && !t.closing);
+    } catch (_) {
+      return [];
     }
-    notifyHUD(true, "Nueva pestaña");
-    return { handled: true, action: "new_tab" };
   }
 
-  if (/^cerrar\s+(?:esta\s+)?pesta[nñ]a$|^quitar\s+pesta[nñ]a$/i.test(text)) {
-    logDebug("Comando global detectado: Cerrar pestaña");
-    if (gBrowser?.selectedTab) {
-      gBrowser.removeTab(gBrowser.selectedTab);
-    }
-    notifyHUD(true, "Cerrar pestaña");
-    return { handled: true, action: "close_tab" };
-  }
-
-  if (/^siguiente\s+pesta[nñ]a$|^pesta[nñ]a\s+siguiente$|^cambiar\s+pesta[nñ]a$/i.test(text)) {
+  // 2. Control Integral de Pestañas y Ventanas
+  // 2.1. Navegación entre Pestañas
+  if (/^(?:siguiente\s+pesta[nñ]a|pesta[nñ]a\s+siguiente|avanzar\s+pesta[nñ]a|cambiar\s+pesta[nñ]a|next\s+tab)$/i.test(text)) {
     logDebug("Comando global detectado: Siguiente pestaña");
-    if (gBrowser?.tabContainer?.advanceSelectedTab) {
-      gBrowser.tabContainer.advanceSelectedTab(1, true);
+    try {
+      if (gBrowser?.tabContainer?.advanceSelectedTab) {
+        gBrowser.tabContainer.advanceSelectedTab(1, true);
+      } else {
+        const tabs = getOpenTabs();
+        if (tabs.length > 1) {
+          const idx = tabs.indexOf(gBrowser.selectedTab);
+          gBrowser.selectedTab = tabs[(idx + 1) % tabs.length];
+        }
+      }
+    } catch (e) {
+      logDebug(`Error en siguiente pestaña: ${e}`);
     }
     notifyHUD(true, "Siguiente pestaña");
     return { handled: true, action: "next_tab" };
   }
 
-  if (/^pesta[nñ]a\s+anterior$|^anterior\s+pesta[nñ]a$/i.test(text)) {
+  if (/^(?:pesta[nñ]a\s+anterior|anterior\s+pesta[nñ]a|retroceder\s+pesta[nñ]a|previous\s+tab)$/i.test(text)) {
     logDebug("Comando global detectado: Pestaña anterior");
-    if (gBrowser?.tabContainer?.advanceSelectedTab) {
-      gBrowser.tabContainer.advanceSelectedTab(-1, true);
+    try {
+      if (gBrowser?.tabContainer?.advanceSelectedTab) {
+        gBrowser.tabContainer.advanceSelectedTab(-1, true);
+      } else {
+        const tabs = getOpenTabs();
+        if (tabs.length > 1) {
+          const idx = tabs.indexOf(gBrowser.selectedTab);
+          gBrowser.selectedTab = tabs[(idx - 1 + tabs.length) % tabs.length];
+        }
+      }
+    } catch (e) {
+      logDebug(`Error en pestaña anterior: ${e}`);
     }
     notifyHUD(true, "Pestaña anterior");
     return { handled: true, action: "previous_tab" };
   }
+
+  if (/^(?:(?:ir\s+a\s+(?:la\s+)?)?primera\s+pesta[nñ]a|pesta[nñ]a\s+inicial|first\s+tab)$/i.test(text)) {
+    logDebug("Comando global detectado: Primera pestaña");
+    const tabs = getOpenTabs();
+    if (tabs.length > 0) {
+      gBrowser.selectedTab = tabs[0];
+      notifyHUD(true, "Primera pestaña");
+      return { handled: true, action: "first_tab" };
+    }
+    notifyHUD(false, "No hay pestañas disponibles");
+    return { handled: true, action: "first_tab_not_found" };
+  }
+
+  if (/^(?:(?:ir\s+a\s+(?:la\s+)?)?[uú]ltima\s+pesta[nñ]a|pesta[nñ]a\s+final|last\s+tab)$/i.test(text)) {
+    logDebug("Comando global detectado: Última pestaña");
+    const tabs = getOpenTabs();
+    if (tabs.length > 0) {
+      gBrowser.selectedTab = tabs[tabs.length - 1];
+      notifyHUD(true, "Última pestaña");
+      return { handled: true, action: "last_tab" };
+    }
+    notifyHUD(false, "No hay pestañas disponibles");
+    return { handled: true, action: "last_tab_not_found" };
+  }
+
+  // Selección de pestaña por índice numérico (ej. "pestaña 2", "ir a la pestaña 3", "pestaña dos")
+  const tabNumMatch = text.match(
+    /^(?:(?:ir\s+a|cambiar\s+a|seleccionar|pasar\s+a)\s+(?:la\s+)?)?pesta[nñ]a(?:\s+n[uú]mero|\s+#)?\s+([0-9]{1,2}|[a-zñáéíóú]+)$/i
+  );
+  if (tabNumMatch && tabNumMatch[1]) {
+    const rawVal = tabNumMatch[1].trim().toLowerCase();
+    let tabIndex = null;
+    if (/^[0-9]+$/.test(rawVal)) {
+      tabIndex = parseInt(rawVal, 10);
+    } else if (WORD_TO_NUMBER[rawVal] !== undefined) {
+      tabIndex = WORD_TO_NUMBER[rawVal];
+    }
+
+    if (tabIndex !== null && tabIndex >= 1) {
+      logDebug(`Comando global detectado: Ir a pestaña #${tabIndex}`);
+      const tabs = getOpenTabs();
+      if (tabIndex <= tabs.length) {
+        gBrowser.selectedTab = tabs[tabIndex - 1];
+        notifyHUD(true, `Pestaña ${tabIndex}`);
+        return { handled: true, action: "select_tab_index", index: tabIndex };
+      } else {
+        notifyHUD(false, `Pestaña ${tabIndex} no existe (${tabs.length} abiertas)`);
+        return { handled: true, action: "select_tab_index_out_of_range", index: tabIndex };
+      }
+    }
+  }
+
+  // 2.2. Gestión del Ciclo de Vida y Organización de Pestañas
+  if (/^(?:nueva\s+pesta[nñ]a|abrir\s+pesta[nñ]a|crear\s+pesta[nñ]a|new\s+tab)$/i.test(text)) {
+    logDebug("Comando global detectado: Nueva pestaña");
+    try {
+      if (typeof win.BrowserOpenTab === "function") {
+        win.BrowserOpenTab();
+      } else if (gBrowser?.addTrustedTab) {
+        gBrowser.addTrustedTab("about:newtab");
+      }
+    } catch (e) {
+      logDebug(`Error en BrowserOpenTab: ${e}`);
+    }
+    notifyHUD(true, "Nueva pestaña");
+    return { handled: true, action: "new_tab" };
+  }
+
+  if (/^(?:cerrar\s+(?:esta\s+)?pesta[nñ]a|quitar\s+pesta[nñ]a|close\s+tab)$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar pestaña");
+    try {
+      if (gBrowser?.selectedTab) {
+        gBrowser.removeTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error en removeTab: ${e}`);
+    }
+    notifyHUD(true, "Cerrar pestaña");
+    return { handled: true, action: "close_tab" };
+  }
+
+  if (/^(?:reabrir|restaurar|recuperar|deshacer\s+cerrar)\s+(?:[uú]ltima\s+)?pesta[nñ]a$|^reopen\s+tab$|^undo\s+close\s+tab$/i.test(text)) {
+    logDebug("Comando global detectado: Reabrir pestaña cerrada");
+    let restored = false;
+    try {
+      const closedCount = typeof win.SessionStore?.getClosedTabCount === "function" ? win.SessionStore.getClosedTabCount(win) : 1;
+      if (closedCount > 0) {
+        if (typeof win.SessionWindowUI?.undoCloseTab === "function") {
+          win.SessionWindowUI.undoCloseTab(win);
+          restored = true;
+        } else if (typeof win.undoCloseTab === "function") {
+          win.undoCloseTab();
+          restored = true;
+        } else if (typeof win.SessionStore?.undoCloseTab === "function") {
+          win.SessionStore.undoCloseTab(win, 0);
+          restored = true;
+        } else if (typeof win.SessionWindowUI?.restoreLastClosedTabOrWindowOrSession === "function") {
+          win.SessionWindowUI.restoreLastClosedTabOrWindowOrSession(win);
+          restored = true;
+        }
+      }
+    } catch (e) {
+      logDebug(`Aviso al reabrir pestaña: ${e}`);
+    }
+    notifyHUD(restored, restored ? "Pestaña restaurada" : "No hay pestañas cerradas para reabrir");
+    return { handled: true, action: "restore_tab", success: restored };
+  }
+
+  if (/^(?:cerrar\s+(?:las\s+)?(?:dem[aá]s|otras)\s+pesta[nñ]as|cerrar\s+resto\s+de\s+pesta[nñ]as|close\s+other\s+tabs)$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar las demás pestañas");
+    try {
+      if (typeof gBrowser?.removeOtherTabs === "function" && gBrowser.selectedTab) {
+        gBrowser.removeOtherTabs(gBrowser.selectedTab);
+      } else if (gBrowser) {
+        const current = gBrowser.selectedTab;
+        const tabs = getOpenTabs();
+        for (const t of tabs) {
+          if (t !== current && !t.pinned) {
+            gBrowser.removeTab(t);
+          }
+        }
+      }
+    } catch (e) {
+      logDebug(`Error en removeOtherTabs: ${e}`);
+    }
+    notifyHUD(true, "Otras pestañas cerradas");
+    return { handled: true, action: "close_other_tabs" };
+  }
+
+  if (/^(?:cerrar\s+(?:las\s+)?pesta[nñ]as\s+(?:a\s+la|de\s+la)\s+derecha|close\s+tabs\s+to\s+(?:the\s+)?right)$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar pestañas a la derecha");
+    try {
+      if (typeof gBrowser?.removeTabsToTheEndFrom === "function" && gBrowser.selectedTab) {
+        gBrowser.removeTabsToTheEndFrom(gBrowser.selectedTab);
+      } else if (gBrowser) {
+        const current = gBrowser.selectedTab;
+        const tabs = getOpenTabs();
+        const curIdx = tabs.indexOf(current);
+        if (curIdx !== -1) {
+          for (let i = tabs.length - 1; i > curIdx; i--) {
+            if (!tabs[i].pinned) {
+              gBrowser.removeTab(tabs[i]);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      logDebug(`Error en removeTabsToTheEndFrom: ${e}`);
+    }
+    notifyHUD(true, "Pestañas a la derecha cerradas");
+    return { handled: true, action: "close_tabs_to_right" };
+  }
+
+  if (/^(?:fijar|anclar|pinear)\s+pesta[nñ]a$|^pin\s+tab$/i.test(text)) {
+    logDebug("Comando global detectado: Fijar pestaña");
+    try {
+      if (gBrowser?.selectedTab && !gBrowser.selectedTab.pinned) {
+        gBrowser.pinTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error en pinTab: ${e}`);
+    }
+    notifyHUD(true, "Pestaña fijada");
+    return { handled: true, action: "pin_tab" };
+  }
+
+  if (/^(?:desfijar|desanclar|despinear)\s+pesta[nñ]a$|^unpin\s+tab$/i.test(text)) {
+    logDebug("Comando global detectado: Desfijar pestaña");
+    try {
+      if (gBrowser?.selectedTab && gBrowser.selectedTab.pinned) {
+        gBrowser.unpinTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error en unpinTab: ${e}`);
+    }
+    notifyHUD(true, "Pestaña desfijada");
+    return { handled: true, action: "unpin_tab" };
+  }
+
+  if (/^(?:alternar\s+fijar\s+pesta[nñ]a|fijar\s+o\s+desfijar\s+pesta[nñ]a|toggle\s+pin\s+tab)$/i.test(text)) {
+    logDebug("Comando global detectado: Alternar fijar pestaña");
+    let isPinned = false;
+    try {
+      if (gBrowser?.selectedTab) {
+        if (gBrowser.selectedTab.pinned) {
+          gBrowser.unpinTab(gBrowser.selectedTab);
+          isPinned = false;
+        } else {
+          gBrowser.pinTab(gBrowser.selectedTab);
+          isPinned = true;
+        }
+      }
+    } catch (e) {
+      logDebug(`Error en toggle pinTab: ${e}`);
+    }
+    notifyHUD(true, isPinned ? "Pestaña fijada" : "Pestaña desfijada");
+    return { handled: true, action: "toggle_pin_tab", pinned: isPinned };
+  }
+
+  if (/^(?:duplicar|clonar)\s+pesta[nñ]a$|^duplicate\s+tab$/i.test(text)) {
+    logDebug("Comando global detectado: Duplicar pestaña");
+    try {
+      if (gBrowser?.duplicateTab && gBrowser?.selectedTab) {
+        gBrowser.duplicateTab(gBrowser.selectedTab);
+      }
+    } catch (e) {
+      logDebug(`Error al duplicar pestaña: ${e}`);
+    }
+    notifyHUD(true, "Duplicar pestaña");
+    return { handled: true, action: "duplicate_tab" };
+  }
+
+  if (/^(?:mover|desplazar)\s+pesta[nñ]a\s+(?:a\s+la\s+derecha|adelante)$/i.test(text)) {
+    logDebug("Comando global detectado: Mover pestaña a la derecha");
+    try {
+      if (typeof gBrowser?.moveTabForward === "function") {
+        gBrowser.moveTabForward();
+      } else if (gBrowser?.selectedTab) {
+        const tabs = Array.from(gBrowser.tabs);
+        const idx = tabs.indexOf(gBrowser.selectedTab);
+        if (idx < tabs.length - 1) {
+          gBrowser.moveTabTo(gBrowser.selectedTab, idx + 1);
+        }
+      }
+    } catch (e) {
+      logDebug(`Error al mover pestaña a la derecha: ${e}`);
+    }
+    notifyHUD(true, "Pestaña movida a la derecha");
+    return { handled: true, action: "move_tab_forward" };
+  }
+
+  if (/^(?:mover|desplazar)\s+pesta[nñ]a\s+(?:a\s+la\s+izquierda|atr[aá]s)$/i.test(text)) {
+    logDebug("Comando global detectado: Mover pestaña a la izquierda");
+    try {
+      if (typeof gBrowser?.moveTabBackward === "function") {
+        gBrowser.moveTabBackward();
+      } else if (gBrowser?.selectedTab) {
+        const tabs = Array.from(gBrowser.tabs);
+        const idx = tabs.indexOf(gBrowser.selectedTab);
+        if (idx > 0) {
+          gBrowser.moveTabTo(gBrowser.selectedTab, idx - 1);
+        }
+      }
+    } catch (e) {
+      logDebug(`Error al mover pestaña a la izquierda: ${e}`);
+    }
+    notifyHUD(true, "Pestaña movida a la izquierda");
+    return { handled: true, action: "move_tab_backward" };
+  }
+
+  if (/^(?:mover|desplazar)\s+pesta[nñ]a\s+(?:al\s+(?:principio|inicio)|a\s+la\s+primera\s+posici[oó]n)$/i.test(text)) {
+    logDebug("Comando global detectado: Mover pestaña al inicio");
+    try {
+      if (typeof gBrowser?.moveTabToStart === "function") {
+        gBrowser.moveTabToStart();
+      } else if (gBrowser?.selectedTab) {
+        gBrowser.moveTabTo(gBrowser.selectedTab, 0);
+      }
+    } catch (e) {
+      logDebug(`Error al mover pestaña al inicio: ${e}`);
+    }
+    notifyHUD(true, "Pestaña movida al inicio");
+    return { handled: true, action: "move_tab_start" };
+  }
+
+  if (/^(?:mover|desplazar)\s+pesta[nñ]a\s+(?:al\s+final|a\s+la\s+[uú]ltima\s+posici[oó]n)$/i.test(text)) {
+    logDebug("Comando global detectado: Mover pestaña al final");
+    try {
+      if (typeof gBrowser?.moveTabToEnd === "function") {
+        gBrowser.moveTabToEnd();
+      } else if (gBrowser?.selectedTab) {
+        const tabs = Array.from(gBrowser.tabs);
+        gBrowser.moveTabTo(gBrowser.selectedTab, tabs.length - 1);
+      }
+    } catch (e) {
+      logDebug(`Error al mover pestaña al final: ${e}`);
+    }
+    notifyHUD(true, "Pestaña movida al final");
+    return { handled: true, action: "move_tab_end" };
+  }
+
+  // 2.3. Control de Ventanas del Navegador
+  if (/^(?:nueva|abrir|crear)\s+ventana$|^new\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Nueva ventana");
+    try {
+      if (typeof win.OpenBrowserWindow === "function") {
+        win.OpenBrowserWindow();
+      } else if (typeof win.openBrowserWindow === "function") {
+        win.openBrowserWindow();
+      }
+    } catch (e) {
+      logDebug(`Error al abrir nueva ventana: ${e}`);
+    }
+    notifyHUD(true, "Nueva ventana");
+    return { handled: true, action: "new_window" };
+  }
+
+  if (/^(?:nueva\s+ventana\s+privada|abrir\s+ventana\s+privada|ventana\s+privada|(?:modo\s+)?inc[oó]gnito)$|^new\s+private\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Nueva ventana privada");
+    try {
+      if (typeof win.OpenBrowserWindow === "function") {
+        win.OpenBrowserWindow({ private: true });
+      } else if (typeof win.openBrowserWindow === "function") {
+        win.openBrowserWindow({ private: true });
+      }
+    } catch (e) {
+      logDebug(`Error al abrir ventana privada: ${e}`);
+    }
+    notifyHUD(true, "Nueva ventana privada");
+    return { handled: true, action: "new_private_window" };
+  }
+
+  if (/^cerrar\s+(?:esta\s+)?ventana$|^close\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar ventana");
+    try {
+      if (typeof win.BrowserCloseWindow === "function") {
+        win.BrowserCloseWindow();
+      } else if (typeof win.close === "function") {
+        win.close();
+      }
+    } catch (e) {
+      logDebug(`Error al cerrar ventana: ${e}`);
+    }
+    notifyHUD(true, "Cerrar ventana");
+    return { handled: true, action: "close_window" };
+  }
+
+  if (/^(?:reabrir|restaurar|recuperar)\s+ventana$|^reopen\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Reabrir ventana cerrada");
+    let restored = false;
+    try {
+      if (typeof win.SessionWindowUI?.undoCloseWindow === "function") {
+        win.SessionWindowUI.undoCloseWindow();
+        restored = true;
+      } else if (typeof win.undoCloseWindow === "function") {
+        win.undoCloseWindow();
+        restored = true;
+      } else if (typeof win.SessionStore?.undoCloseWindow === "function") {
+        win.SessionStore.undoCloseWindow(0);
+        restored = true;
+      }
+    } catch (e) {
+      logDebug(`Error al reabrir ventana: ${e}`);
+    }
+    notifyHUD(restored, restored ? "Ventana restaurada" : "No hay ventanas para reabrir");
+    return { handled: true, action: "restore_window", success: restored };
+  }
+
+  if (/^(?:minimizar\s+ventana|minimizar)$|^minimize\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Minimizar ventana");
+    try {
+      if (typeof win.minimize === "function") {
+        win.minimize();
+      }
+    } catch (e) {
+      logDebug(`Error al minimizar ventana: ${e}`);
+    }
+    notifyHUD(true, "Ventana minimizada");
+    return { handled: true, action: "minimize_window" };
+  }
+
+  if (/^(?:maximizar\s+ventana|maximizar|restaurar\s+ventana)$|^maximize\s+window$/i.test(text)) {
+    logDebug("Comando global detectado: Maximizar / Restaurar ventana");
+    let isMax = false;
+    try {
+      if (win.windowState === win.STATE_MAXIMIZED) {
+        if (typeof win.restore === "function") win.restore();
+        isMax = false;
+      } else {
+        if (typeof win.maximize === "function") win.maximize();
+        isMax = true;
+      }
+    } catch (e) {
+      logDebug(`Error al maximizar/restaurar ventana: ${e}`);
+    }
+    notifyHUD(true, isMax ? "Ventana maximizada" : "Ventana restaurada");
+    return { handled: true, action: "toggle_maximize_window", maximized: isMax };
+  }
+
 
   // 3. Zoom Accesible
   if (/^zoom\s+m[aá]s$|^aumentar\s+zoom$|^m[aá]s\s+zoom$/i.test(text)) {
@@ -764,18 +1155,6 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "toggle_fullscreen" };
   }
 
-  if (/^duplicar\s+pesta[nñ]a$/i.test(text)) {
-    logDebug("Comando global detectado: Duplicar pestaña");
-    try {
-      if (gBrowser?.duplicateTab && gBrowser?.selectedTab) {
-        gBrowser.duplicateTab(gBrowser.selectedTab);
-      }
-    } catch (e) {
-      logDebug(`Error al duplicar pestaña (ej. vista no registrada aún): ${e}`);
-    }
-    notifyHUD(true, "Duplicar pestaña");
-    return { handled: true, action: "duplicate_tab" };
-  }
 
   if (/^(?:silenciar|mutear)(?:\s+pesta[nñ]a)?$|^(?:activar|desmutear)\s+(?:sonido|audio)$/i.test(text)) {
     logDebug("Comando global detectado: Silenciar/Activar audio de pestaña");

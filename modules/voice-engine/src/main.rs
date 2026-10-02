@@ -50,16 +50,16 @@ async fn main() -> anyhow::Result<()> {
     let ipc_file_path = resolve_ipc_path();
     log_debug(&format!("Starting zen-voice-engine main with IPC path: {:?}", ipc_file_path));
 
-    // Inicializar archivo IPC si no existe
-    if !ipc_file_path.exists() {
-        let _ = std::fs::write(&ipc_file_path, "");
-    }
+    // Truncar o inicializar archivo IPC para descartar comandos residuales de sesiones previas
+    let _ = std::fs::write(&ipc_file_path, "");
 
     // Canal en segundo plano para recibir voz transcrita en vivo (IPC ultrarrápido sin dependencias de red)
     let ipc_path_clone = ipc_file_path.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader, Seek, SeekFrom};
-        let mut last_pos: u64 = 0;
+        let mut last_pos: u64 = std::fs::metadata(&ipc_path_clone)
+            .map(|m| m.len())
+            .unwrap_or(0);
         log_debug(&format!("IPC listener activo en {:?}", ipc_path_clone));
 
         loop {
