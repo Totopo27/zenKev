@@ -283,7 +283,7 @@ export function parseNumericSelection(transcript) {
  * Renderiza un HUD flotante nativo a nivel de ventana del navegador (Chrome Window).
  * Inmune a problemas de z-index, iframes o páginas especiales (about:newtab, etc.).
  */
-export function showNativeChromeHUD(topWin, { success = true, transcript = "", label = "", latencyMs = null }) {
+export function showNativeChromeHUD(topWin, { success = true, transcript = "", label = "", latencyMs = null, tier = "tier1_lexical" }) {
   const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
   if (!win || !win.document) return;
 
@@ -368,7 +368,7 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   const isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
   const displayDuration = isDemo ? 3800 : 2200;
   if (transcript && success) {
-    try { logRecentCommand(transcript, latencyMs); } catch (_) {}
+    try { logRecentCommand(transcript, latencyMs, tier); } catch (_) {}
   }
 
   win._zenkevChromeHudTimeout = win.setTimeout(() => {
@@ -472,15 +472,18 @@ export function updateVoiceNavButtonState(state) {
 Services.zenSetVoiceState = updateVoiceNavButtonState;
 
 let _recentCommandsLog = [
-  { text: "presiona el dos", latency: "0.02ms" },
-  { text: "escribe mensaje hola", latency: "0.05ms" },
-  { text: "abrir nueva pestaña", latency: "0.03ms" },
+  { text: "presiona el dos", latency: "0.02ms", tier: "tier1_lexical" },
+  { text: "quiero pagar mi pedido", latency: "0.85ms", tier: "tier2_semantic", isTier2: true },
+  { text: "abrir nueva pestaña", latency: "0.03ms", tier: "tier1_lexical" },
 ];
 
-export function logRecentCommand(transcript, latencyMs = 0.05) {
+export function logRecentCommand(transcript, latencyMs = 0.05, tier = "tier1_lexical") {
+  const isTier2 = tier === "tier2_semantic";
   _recentCommandsLog.unshift({
-    text: transcript.slice(0, 26),
-    latency: latencyMs ? `${latencyMs}ms` : "0.05ms",
+    text: transcript.slice(0, 24),
+    latency: latencyMs != null ? `${typeof latencyMs === "number" ? latencyMs.toFixed(2) : latencyMs}ms` : "0.05ms",
+    tier,
+    isTier2,
   });
   if (_recentCommandsLog.length > 4) _recentCommandsLog.pop();
   updatePanelHistoryUI();
@@ -501,11 +504,17 @@ function updatePanelHistoryUI() {
           const left = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
           left.style.cssText = "color:#e2e8f0; display:flex; align-items:center; gap:6px;";
           const dot = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
-          dot.style.cssText = "width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;";
+          dot.style.cssText = `width:6px; height:6px; border-radius:50%; background:${cmd.isTier2 ? "#a855f7" : "#10b981"}; display:inline-block;`;
           left.appendChild(dot);
           left.appendChild(win.document.createTextNode(`"${cmd.text}"`));
+          if (cmd.isTier2) {
+            const badge = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
+            badge.style.cssText = "font-size:9px; background:rgba(168,85,247,0.25); color:#c084fc; padding:1px 4px; border-radius:4px; margin-left:4px;";
+            badge.textContent = "🧠 Tier 2";
+            left.appendChild(badge);
+          }
           const right = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
-          right.style.cssText = "color:#38bdf8; font-weight:700;";
+          right.style.cssText = `color:${cmd.isTier2 ? "#c084fc" : "#38bdf8"}; font-weight:700;`;
           right.textContent = cmd.latency;
           row.appendChild(left);
           row.appendChild(right);
@@ -2566,11 +2575,14 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
     logDebug(`Decisión de Rust: matched_id=${decision.matched_id}, action=${decision.action}, conf=${decision.confidence}`);
 
     // Notificar al Chrome HUD nativo y al Child
+    const isTier2 = decision.tier === "tier2_semantic";
+    const tierBadge = isTier2 ? "🧠 Tier 2 (Semántico)" : "⚡ Tier 1 (Léxico)";
     showNativeChromeHUD(topWin, {
       success: !!decision.matched_id,
       transcript,
-      label: decision.matched_id ? `Acción: ${decision.action}` : "Sin coincidencia en página",
+      label: decision.matched_id ? `${tierBadge} → ${decision.action}` : "Sin coincidencia en página",
       latencyMs: decision.latency_ms,
+      tier: decision.tier || "tier1_lexical",
     });
     try {
       this.sendAsyncMessage("ZenVoiceNav:LogCommand", {

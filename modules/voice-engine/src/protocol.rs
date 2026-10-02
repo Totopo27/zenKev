@@ -54,4 +54,5 @@ pub struct ClassifyResult {
     pub latency_ms: f64,
     pub candidate_count_in: usize,
     pub candidate_count_pruned: usize,
+    pub tier: String,
 }

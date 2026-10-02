@@ -40,6 +40,7 @@ fn test_lexical_pruning_and_nli_decision() {
     let decision = classifier.evaluate("abrir configuracion", &pruned);
     assert_eq!(decision.matched_id, Some("2".to_string()));
     assert_eq!(decision.action, "click");
+    assert_eq!(decision.tier, "tier1_lexical");
     assert!(!decision.fallback_to_vlm);
 
     // Caso 2: Campo de entrada (Entry) debe mapear a 'focus'
@@ -47,6 +48,7 @@ fn test_lexical_pruning_and_nli_decision() {
     let decision_entry = classifier.evaluate("buscar", &pruned_entry);
     assert_eq!(decision_entry.matched_id, Some("4".to_string()));
     assert_eq!(decision_entry.action, "focus");
+    assert_eq!(decision_entry.tier, "tier1_lexical");
 
     // Caso 3: Botón mudo debe disparar fallback a Sistema 2 (VLM)
     let silent_candidates = vec![create_mock_candidate(5, "", "button")];
@@ -54,6 +56,32 @@ fn test_lexical_pruning_and_nli_decision() {
     let decision_silent = classifier.evaluate("icono", &pruned_silent);
     assert!(decision_silent.fallback_to_vlm);
     assert_eq!(decision_silent.action, "inspect_visual");
+}
+
+#[test]
+fn test_tier2_semantic_fallback_synonyms() {
+    let classifier = nli_engine::IntentClassifier::new(0.40);
+
+    let candidates = vec![
+        create_mock_candidate(10, "Finalizar compra y pagar", "button"),
+        create_mock_candidate(20, "Opciones de cuenta y perfil", "link"),
+        create_mock_candidate(30, "Descargar instalador", "button"),
+    ];
+
+    // Frase con sinónimo: "quiero pagar mi pedido" -> debe activar Tier 2 Semántico y asociarse a "Finalizar compra y pagar"
+    let pruned = lexical_ranker::rank_and_prune("quiero pagar mi pedido", &candidates, 3);
+    let decision = classifier.evaluate("quiero pagar mi pedido", &pruned);
+
+    assert_eq!(decision.matched_id, Some("10".to_string()));
+    assert_eq!(decision.action, "click");
+    assert_eq!(decision.tier, "tier2_semantic");
+    assert!(!decision.fallback_to_vlm);
+
+    // Sinónimo conceptual: "ajustes" -> debe resolver a "Opciones de cuenta y perfil" por concepto semántico
+    let pruned_settings = lexical_ranker::rank_and_prune("ajustes", &candidates, 3);
+    let decision_settings = classifier.evaluate("ajustes", &pruned_settings);
+    assert_eq!(decision_settings.matched_id, Some("20".to_string()));
+    assert_eq!(decision_settings.tier, "tier2_semantic");
 }
 
 #[test]

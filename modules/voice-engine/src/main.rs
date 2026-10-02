@@ -138,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
                     latency_ms: elapsed_ms,
                     candidate_count_in: initial_count,
                     candidate_count_pruned: pruned_count,
+                    tier: decision.tier,
                 }
             }
             Err(e) => ClassifyResult {
@@ -148,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
                 latency_ms: start_time.elapsed().as_secs_f64() * 1000.0,
                 candidate_count_in: 0,
                 candidate_count_pruned: 0,
+                tier: "none".to_string(),
             },
         };
 
