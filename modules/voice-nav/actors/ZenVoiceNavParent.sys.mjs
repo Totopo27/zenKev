@@ -538,14 +538,22 @@ export function toggleNativeVoicePanel(topWin) {
     if (panel.style.display === "none") {
       panel.style.display = "flex";
       updatePanelHistoryUI();
-      win.setTimeout(() => {
+      win.requestAnimationFrame(() => {
         panel.style.opacity = "1";
         panel.style.transform = "translateY(0) scale(1)";
-      }, 10);
+      });
     } else {
       panel.style.opacity = "0";
       panel.style.transform = "translateY(-10px) scale(0.97)";
-      win.setTimeout(() => { panel.style.display = "none"; }, 200);
+      const onTransitionEnd = (e) => {
+        if (e.target === panel) {
+          panel.removeEventListener("transitionend", onTransitionEnd);
+          if (panel.style.opacity === "0") {
+            panel.style.display = "none";
+          }
+        }
+      };
+      panel.addEventListener("transitionend", onTransitionEnd);
     }
     return;
   }
@@ -611,7 +619,13 @@ export function toggleNativeVoicePanel(topWin) {
   vuBox.style.cssText = "background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px;";
   const vuHeader = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   vuHeader.style.cssText = "display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 6px;";
-  vuHeader.innerHTML = `<span>Micrófono (Realtek 16kHz)</span><span style="color: #10b981; font-weight: 600;">● Escuchando</span>`;
+  const vuMicSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  vuMicSpan.textContent = "Micrófono (Realtek 16kHz)";
+  const vuStatusSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  vuStatusSpan.style.cssText = "color: #10b981; font-weight: 600;";
+  vuStatusSpan.textContent = "● Escuchando";
+  vuHeader.appendChild(vuMicSpan);
+  vuHeader.appendChild(vuStatusSpan);
   const vuBars = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   vuBars.style.cssText = "display: flex; align-items: flex-end; justify-content: space-between; height: 18px; gap: 3px;";
   const barHeights = [4, 8, 14, 18, 15, 11, 16, 9, 14, 6, 12, 5];
@@ -630,19 +644,39 @@ export function toggleNativeVoicePanel(topWin) {
 
   const btnBadges = doc.createElementNS("http://www.w3.org/1999/xhtml", "button");
   btnBadges.style.cssText = "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; font-size: 11px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;";
-  btnBadges.innerHTML = `<span>🔢 Atajos [F2]</span><span style="font-size: 9px; color: #94a3b8;">Alternar Badges</span>`;
+  const btnBadgesTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  btnBadgesTitle.textContent = "🔢 Atajos [F2]";
+  const btnBadgesSub = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  btnBadgesSub.style.cssText = "font-size: 9px; color: #94a3b8;";
+  btnBadgesSub.textContent = "Alternar Badges";
+  btnBadges.appendChild(btnBadgesTitle);
+  btnBadges.appendChild(btnBadgesSub);
   btnBadges.onclick = () => {
     if (win.gZenVoiceNav?.toggleOverlay) win.gZenVoiceNav.toggleOverlay();
   };
 
   const btnDemo = doc.createElementNS("http://www.w3.org/1999/xhtml", "button");
   btnDemo.style.cssText = "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; font-size: 11px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;";
+  const btnDemoTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  const btnDemoSub = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  btnDemoSub.style.fontSize = "9px";
+
+  const updateDemoBtn = (isDemo) => {
+    btnDemoTitle.textContent = isDemo ? "🎬 Modo Demo" : "⚡ Modo Normal";
+    btnDemoSub.textContent = isDemo ? "Ritmo humano" : "0.02ms Ultra";
+    btnDemoSub.style.color = isDemo ? "#f59e0b" : "#38bdf8";
+  };
+
   const isDemoCur = Services.prefs?.getBoolPref("zen.voicenav.demo_mode", false);
-  btnDemo.innerHTML = `<span>${isDemoCur ? "🎬 Modo Demo" : "⚡ Modo Normal"}</span><span style="font-size: 9px; color: ${isDemoCur ? "#f59e0b" : "#38bdf8"};">${isDemoCur ? "Ritmo humano" : "0.02ms Ultra"}</span>`;
+  updateDemoBtn(isDemoCur);
+  btnDemo.appendChild(btnDemoTitle);
+  btnDemo.appendChild(btnDemoSub);
+
   btnDemo.onclick = () => {
     const cur = Services.prefs?.getBoolPref("zen.voicenav.demo_mode", false);
-    Services.prefs?.setBoolPref("zen.voicenav.demo_mode", !cur);
-    btnDemo.innerHTML = `<span>${!cur ? "🎬 Modo Demo" : "⚡ Modo Normal"}</span><span style="font-size: 9px; color: ${!cur ? "#f59e0b" : "#38bdf8"};">${!cur ? "Ritmo humano" : "0.02ms Ultra"}</span>`;
+    const next = !cur;
+    Services.prefs?.setBoolPref("zen.voicenav.demo_mode", next);
+    updateDemoBtn(next);
   };
 
   actions.appendChild(btnBadges);
@@ -667,10 +701,10 @@ export function toggleNativeVoicePanel(topWin) {
 
   updatePanelHistoryUI();
 
-  win.setTimeout(() => {
+  win.requestAnimationFrame(() => {
     panel.style.opacity = "1";
     panel.style.transform = "translateY(0) scale(1)";
-  }, 10);
+  });
 }
 
 Services.zenToggleVoicePanel = toggleNativeVoicePanel;

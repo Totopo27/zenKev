@@ -73,3 +73,30 @@ fn audit_vector_3_malformed_json_resilience() {
         assert!(res.is_err());
     }
 }
+
+#[test]
+fn audit_vector_4_privacy_remote_endpoint_blocking() {
+    use zen_voice_engine::nli_engine::IntentClassifier;
+
+    // Simular que ZEN_VOICE_KEV_ENDPOINT apunta a una IP pública/remota (ej: 8.8.8.8)
+    std::env::set_var("ZEN_VOICE_KEV_ENDPOINT", "http://8.8.8.8:8080/choice");
+    std::env::remove_var("ZEN_VOICE_ALLOW_REMOTE_ENDPOINT");
+
+    let classifier = IntentClassifier::new(0.40);
+    let candidates = vec![
+        create_adversarial_node(1, "Opciones de configuración", "button"),
+    ];
+    let pruned = lexical_ranker::rank_and_prune("abrir ajustes", &candidates, 3);
+
+    let start = Instant::now();
+    let decision = classifier.evaluate("abrir ajustes", &pruned);
+    let elapsed = start.elapsed();
+
+    // Debe bloquear de inmediato sin esperar el timeout TCP (<15ms)
+    assert!(elapsed.as_millis() < 50);
+    // Debe resolver correctamente mediante el fallback semántico local
+    assert_eq!(decision.matched_id, Some("1".to_string()));
+
+    // Limpiar variables de entorno
+    std::env::remove_var("ZEN_VOICE_KEV_ENDPOINT");
+}

@@ -1,6 +1,6 @@
 use crate::protocol::RankedCandidate;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 pub struct DecisionOutput {
@@ -190,6 +190,20 @@ impl IntentClassifier {
         let host = hp_parts.next()?;
         let port: u16 = hp_parts.next().and_then(|p| p.parse().ok()).unwrap_or(80);
 
+        let addr = format!("{}:{}", host, port)
+            .to_socket_addrs()
+            .ok()?
+            .next()?;
+
+        // Privacy check: reject non-loopback endpoints unless explicitly allowed
+        if !addr.ip().is_loopback() && std::env::var("ZEN_VOICE_ALLOW_REMOTE_ENDPOINT").as_deref() != Ok("1") {
+            eprintln!(
+                "[zenKev] Privacy warning: Refusing to send voice transcript to non-loopback endpoint '{}' ({}) without ZEN_VOICE_ALLOW_REMOTE_ENDPOINT=1",
+                host_port, addr
+            );
+            return None;
+        }
+
         let choices: Vec<&str> = ranked.iter().map(|r| r.name.as_str()).collect();
         let payload = serde_json::json!({
             "question": format!("El usuario ha dicho: '{}'. ¿Cuál de las opciones representa mejor la acción deseada?", transcript),
@@ -197,13 +211,7 @@ impl IntentClassifier {
         });
         let body = serde_json::to_string(&payload).ok()?;
 
-        let mut stream = TcpStream::connect_timeout(
-            &std::net::SocketAddr::new(
-                host.parse().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
-                port,
-            ),
-            Duration::from_millis(150),
-        ).ok()?;
+        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(150)).ok()?;
 
         stream.set_read_timeout(Some(Duration::from_millis(250))).ok()?;
         stream.set_write_timeout(Some(Duration::from_millis(150))).ok()?;
