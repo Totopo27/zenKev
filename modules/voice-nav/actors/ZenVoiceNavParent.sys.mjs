@@ -329,11 +329,63 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   hud.style.borderColor = glowColor;
   hud.style.boxShadow = `0 14px 34px rgba(0, 0, 0, 0.45), 0 0 16px ${glowColor}`;
 
-  // Icono indicador
-  const icon = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
-  icon.style.cssText = "font-size: 16px; display: flex; align-items: center; justify-content: center;";
-  icon.textContent = success ? "🎤" : "⚠️";
-  hud.appendChild(icon);
+  // Icono indicador con micro-gema y SVG vectorial puro
+  const iconGem = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  iconGem.style.cssText = `
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: ${success ? "rgba(52, 211, 153, 0.16)" : "rgba(251, 191, 36, 0.16)"};
+    border: 1px solid ${success ? "rgba(52, 211, 153, 0.3)" : "rgba(251, 191, 36, 0.3)"};
+  `;
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const iconSvg = doc.createElementNS(svgNS, "svg");
+  iconSvg.setAttribute("width", "13");
+  iconSvg.setAttribute("height", "13");
+  iconSvg.setAttribute("viewBox", "0 0 24 24");
+  iconSvg.setAttribute("fill", "none");
+  iconSvg.setAttribute("stroke", success ? "#34d399" : "#fbbf24");
+  iconSvg.setAttribute("stroke-width", "2.2");
+  iconSvg.setAttribute("stroke-linecap", "round");
+  iconSvg.setAttribute("stroke-linejoin", "round");
+
+  if (success) {
+    const p1 = doc.createElementNS(svgNS, "path");
+    p1.setAttribute("d", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z");
+    const p2 = doc.createElementNS(svgNS, "path");
+    p2.setAttribute("d", "M19 10v2a7 7 0 0 1-14 0v-2");
+    const l1 = doc.createElementNS(svgNS, "line");
+    l1.setAttribute("x1", "12");
+    l1.setAttribute("y1", "19");
+    l1.setAttribute("x2", "12");
+    l1.setAttribute("y2", "22");
+    iconSvg.appendChild(p1);
+    iconSvg.appendChild(p2);
+    iconSvg.appendChild(l1);
+  } else {
+    const p = doc.createElementNS(svgNS, "path");
+    p.setAttribute("d", "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z");
+    const l1 = doc.createElementNS(svgNS, "line");
+    l1.setAttribute("x1", "12");
+    l1.setAttribute("y1", "9");
+    l1.setAttribute("x2", "12");
+    l1.setAttribute("y2", "13");
+    const l2 = doc.createElementNS(svgNS, "line");
+    l2.setAttribute("x1", "12");
+    l2.setAttribute("y1", "17");
+    l2.setAttribute("x2", "12.01");
+    l2.setAttribute("y2", "17");
+    iconSvg.appendChild(p);
+    iconSvg.appendChild(l1);
+    iconSvg.appendChild(l2);
+  }
+  iconGem.appendChild(iconSvg);
+  hud.appendChild(iconGem);
 
   // Columna de texto
   const textCol = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
@@ -509,8 +561,8 @@ function updatePanelHistoryUI() {
           left.appendChild(win.document.createTextNode(`"${cmd.text}"`));
           if (cmd.isTier2) {
             const badge = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
-            badge.style.cssText = "font-size:9px; background:rgba(168,85,247,0.25); color:#c084fc; padding:1px 4px; border-radius:4px; margin-left:4px;";
-            badge.textContent = "🧠 Tier 2";
+            badge.style.cssText = "font-size:9px; font-weight:600; letter-spacing:0.5px; background:rgba(168,85,247,0.2); border:1px solid rgba(168,85,247,0.35); color:#c084fc; padding:1px 5px; border-radius:4px; margin-left:4px; font-family:monospace;";
+            badge.textContent = "SEMANTIC";
             left.appendChild(badge);
           }
           const right = win.document.createElementNS("http://www.w3.org/1999/xhtml", "span");
@@ -565,18 +617,19 @@ export function toggleNativeVoicePanel(topWin) {
     position: fixed;
     top: 56px;
     right: 20px;
-    width: 320px;
+    width: 330px;
     z-index: 2147483647;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 18px;
-    border-radius: 18px;
-    background: rgba(15, 23, 42, 0.88);
-    backdrop-filter: blur(24px) saturate(190%);
-    -webkit-backdrop-filter: blur(24px) saturate(190%);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 24px rgba(56, 189, 248, 0.18);
+    padding: 20px;
+    border-radius: 22px;
+    background: linear-gradient(165deg, rgba(17, 24, 39, 0.72) 0%, rgba(10, 15, 29, 0.88) 100%);
+    backdrop-filter: blur(32px) saturate(210%);
+    -webkit-backdrop-filter: blur(32px) saturate(210%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-top: 1px solid rgba(255, 255, 255, 0.24);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.08) inset, 0 0 36px rgba(56, 189, 248, 0.12);
     color: #f8fafc;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
     opacity: 0;
@@ -584,30 +637,86 @@ export function toggleNativeVoicePanel(topWin) {
     transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   `;
 
+  // Grabber handle superior
+  const grabber = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  grabber.style.cssText = "width: 36px; height: 4px; background: rgba(255, 255, 255, 0.2); border-radius: 9999px; align-self: center; margin-top: -6px; margin-bottom: 4px;";
+  panel.appendChild(grabber);
+
+  const svgNS = "http://www.w3.org/2000/svg";
+
   // Encabezado
   const header = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  header.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);";
+  header.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);";
 
   const brand = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  brand.style.cssText = "display: flex; align-items: center; gap: 8px;";
+  brand.style.cssText = "display: flex; align-items: center; gap: 10px;";
   const iconBox = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  iconBox.style.cssText = "width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #0284c7, #6366f1); display: flex; align-items: center; justify-content: center; font-size: 16px;";
-  iconBox.textContent = "🎙️";
+  iconBox.style.cssText = "width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(2, 132, 199, 0.8), rgba(99, 102, 241, 0.8)); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;";
+
+  const micSvg = doc.createElementNS(svgNS, "svg");
+  micSvg.setAttribute("width", "16");
+  micSvg.setAttribute("height", "16");
+  micSvg.setAttribute("viewBox", "0 0 24 24");
+  micSvg.setAttribute("fill", "none");
+  micSvg.setAttribute("stroke", "#ffffff");
+  micSvg.setAttribute("stroke-width", "2");
+  micSvg.setAttribute("stroke-linecap", "round");
+  micSvg.setAttribute("stroke-linejoin", "round");
+
+  const micPath1 = doc.createElementNS(svgNS, "path");
+  micPath1.setAttribute("d", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z");
+  const micPath2 = doc.createElementNS(svgNS, "path");
+  micPath2.setAttribute("d", "M19 10v2a7 7 0 0 1-14 0v-2");
+  const micLine = doc.createElementNS(svgNS, "line");
+  micLine.setAttribute("x1", "12");
+  micLine.setAttribute("y1", "19");
+  micLine.setAttribute("x2", "12");
+  micLine.setAttribute("y2", "22");
+  micSvg.appendChild(micPath1);
+  micSvg.appendChild(micPath2);
+  micSvg.appendChild(micLine);
+  iconBox.appendChild(micSvg);
+
   const titleBox = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   const mainTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  mainTitle.style.cssText = "font-weight: 700; font-size: 13px; color: #fff;";
-  mainTitle.textContent = "zenKev Voice Control";
+  mainTitle.style.cssText = "font-weight: 700; font-size: 13px; color: #fff; letter-spacing: 0.2px;";
+  mainTitle.textContent = "zenKev Control";
   const subTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  subTitle.style.cssText = "font-size: 10px; color: #94a3b8;";
-  subTitle.textContent = "Motor Nativo Zen Browser";
+  subTitle.style.cssText = "font-size: 10px; color: #94a3b8; margin-top: 1px;";
+  subTitle.textContent = "Motor Local · Gecko AOM";
   titleBox.appendChild(mainTitle);
   titleBox.appendChild(subTitle);
   brand.appendChild(iconBox);
   brand.appendChild(titleBox);
 
   const closeBtn = doc.createElementNS("http://www.w3.org/1999/xhtml", "button");
-  closeBtn.style.cssText = "background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px;";
-  closeBtn.textContent = "✕";
+  closeBtn.style.cssText = "background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #cbd5e1; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.15s ease, color 0.15s ease;";
+  closeBtn.title = "Cerrar";
+
+  const closeSvg = doc.createElementNS(svgNS, "svg");
+  closeSvg.setAttribute("width", "12");
+  closeSvg.setAttribute("height", "12");
+  closeSvg.setAttribute("viewBox", "0 0 24 24");
+  closeSvg.setAttribute("fill", "none");
+  closeSvg.setAttribute("stroke", "currentColor");
+  closeSvg.setAttribute("stroke-width", "2.2");
+  closeSvg.setAttribute("stroke-linecap", "round");
+  closeSvg.setAttribute("stroke-linejoin", "round");
+
+  const closeLine1 = doc.createElementNS(svgNS, "line");
+  closeLine1.setAttribute("x1", "18");
+  closeLine1.setAttribute("y1", "6");
+  closeLine1.setAttribute("x2", "6");
+  closeLine1.setAttribute("y2", "18");
+  const closeLine2 = doc.createElementNS(svgNS, "line");
+  closeLine2.setAttribute("x1", "6");
+  closeLine2.setAttribute("y1", "6");
+  closeLine2.setAttribute("x2", "18");
+  closeLine2.setAttribute("y2", "18");
+  closeSvg.appendChild(closeLine1);
+  closeSvg.appendChild(closeLine2);
+  closeBtn.appendChild(closeSvg);
+
   closeBtn.onclick = () => toggleNativeVoicePanel(win);
 
   header.appendChild(brand);
@@ -616,22 +725,58 @@ export function toggleNativeVoicePanel(topWin) {
 
   // Vúmetro de audio
   const vuBox = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  vuBox.style.cssText = "background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px;";
+  vuBox.style.cssText = "background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px 12px;";
+
   const vuHeader = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  vuHeader.style.cssText = "display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 6px;";
+  vuHeader.style.cssText = "display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #94a3b8; margin-bottom: 8px;";
+
+  const vuMicContainer = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  vuMicContainer.style.cssText = "display: flex; align-items: center; gap: 5px;";
+
+  const audioSvg = doc.createElementNS(svgNS, "svg");
+  audioSvg.setAttribute("width", "12");
+  audioSvg.setAttribute("height", "12");
+  audioSvg.setAttribute("viewBox", "0 0 24 24");
+  audioSvg.setAttribute("fill", "none");
+  audioSvg.setAttribute("stroke", "#38bdf8");
+  audioSvg.setAttribute("stroke-width", "2");
+  audioSvg.setAttribute("stroke-linecap", "round");
+  audioSvg.setAttribute("stroke-linejoin", "round");
+
+  const audioPath1 = doc.createElementNS(svgNS, "polygon");
+  audioPath1.setAttribute("points", "11 5 6 9 2 9 2 15 6 15 11 19 11 5");
+  const audioPath2 = doc.createElementNS(svgNS, "path");
+  audioPath2.setAttribute("d", "M15.54 8.46a5 5 0 0 1 0 7.07");
+  audioSvg.appendChild(audioPath1);
+  audioSvg.appendChild(audioPath2);
+
   const vuMicSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
-  vuMicSpan.textContent = "Micrófono (Realtek 16kHz)";
-  const vuStatusSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
-  vuStatusSpan.style.cssText = "color: #10b981; font-weight: 600;";
-  vuStatusSpan.textContent = "● Escuchando";
-  vuHeader.appendChild(vuMicSpan);
-  vuHeader.appendChild(vuStatusSpan);
+  vuMicSpan.textContent = "Entrada 16kHz";
+  vuMicContainer.appendChild(audioSvg);
+  vuMicContainer.appendChild(vuMicSpan);
+
+  const vuStatusPill = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  vuStatusPill.style.cssText = "display: flex; align-items: center; gap: 5px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.28); padding: 2px 7px; border-radius: 9999px;";
+
+  const pulseDot = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  pulseDot.style.cssText = "width: 6px; height: 6px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; display: inline-block;";
+
+  const vuStatusText = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  vuStatusText.style.cssText = "color: #34d399; font-size: 10px; font-weight: 600; letter-spacing: 0.3px;";
+  vuStatusText.textContent = "Escuchando";
+
+  vuStatusPill.appendChild(pulseDot);
+  vuStatusPill.appendChild(vuStatusText);
+
+  vuHeader.appendChild(vuMicContainer);
+  vuHeader.appendChild(vuStatusPill);
+
   const vuBars = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  vuBars.style.cssText = "display: flex; align-items: flex-end; justify-content: space-between; height: 18px; gap: 3px;";
+  vuBars.style.cssText = "display: flex; align-items: flex-end; justify-content: space-between; height: 20px; gap: 3px;";
   const barHeights = [4, 8, 14, 18, 15, 11, 16, 9, 14, 6, 12, 5];
   for (const h of barHeights) {
     const b = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-    b.style.cssText = `flex: 1; background: linear-gradient(to top, #0284c7, #38bdf8); border-radius: 4px; height: ${h}px;`;
+    b.style.cssText = `flex: 1; background: linear-gradient(to top, rgba(14, 165, 233, 0.35) 0%, rgba(56, 189, 248, 0.95) 100%); box-shadow: 0 0 6px rgba(56, 189, 248, 0.25); border-radius: 4px; height: ${h}px;`;
     vuBars.appendChild(b);
   }
   vuBox.appendChild(vuHeader);
@@ -643,12 +788,40 @@ export function toggleNativeVoicePanel(topWin) {
   actions.style.cssText = "display: grid; grid-template-columns: 1fr 1fr; gap: 8px;";
 
   const btnBadges = doc.createElementNS("http://www.w3.org/1999/xhtml", "button");
-  btnBadges.style.cssText = "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; font-size: 11px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;";
+  btnBadges.style.cssText = "background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 10px 8px; color: #f1f5f9; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: background 0.18s ease, border-color 0.18s ease;";
+
+  const badgesSvg = doc.createElementNS(svgNS, "svg");
+  badgesSvg.setAttribute("width", "16");
+  badgesSvg.setAttribute("height", "16");
+  badgesSvg.setAttribute("viewBox", "0 0 24 24");
+  badgesSvg.setAttribute("fill", "none");
+  badgesSvg.setAttribute("stroke", "#38bdf8");
+  badgesSvg.setAttribute("stroke-width", "2");
+  badgesSvg.setAttribute("stroke-linecap", "round");
+  badgesSvg.setAttribute("stroke-linejoin", "round");
+
+  const bLineH1 = doc.createElementNS(svgNS, "line");
+  bLineH1.setAttribute("x1", "4"); bLineH1.setAttribute("y1", "9"); bLineH1.setAttribute("x2", "20"); bLineH1.setAttribute("y2", "9");
+  const bLineH2 = doc.createElementNS(svgNS, "line");
+  bLineH2.setAttribute("x1", "4"); bLineH2.setAttribute("y1", "15"); bLineH2.setAttribute("x2", "20"); bLineH2.setAttribute("y2", "15");
+  const bLineV1 = doc.createElementNS(svgNS, "line");
+  bLineV1.setAttribute("x1", "10"); bLineV1.setAttribute("y1", "3"); bLineV1.setAttribute("x2", "8"); bLineV1.setAttribute("y2", "21");
+  const bLineV2 = doc.createElementNS(svgNS, "line");
+  bLineV2.setAttribute("x1", "16"); bLineV2.setAttribute("y1", "3"); bLineV2.setAttribute("x2", "14"); bLineV2.setAttribute("y2", "21");
+  badgesSvg.appendChild(bLineH1);
+  badgesSvg.appendChild(bLineH2);
+  badgesSvg.appendChild(bLineV1);
+  badgesSvg.appendChild(bLineV2);
+
   const btnBadgesTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
-  btnBadgesTitle.textContent = "🔢 Atajos [F2]";
+  btnBadgesTitle.style.cssText = "font-size: 11px; font-weight: 600; color: #f1f5f9;";
+  btnBadgesTitle.textContent = "Atajos AOM";
+
   const btnBadgesSub = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
   btnBadgesSub.style.cssText = "font-size: 9px; color: #94a3b8;";
-  btnBadgesSub.textContent = "Alternar Badges";
+  btnBadgesSub.textContent = "Presiona [F2]";
+
+  btnBadges.appendChild(badgesSvg);
   btnBadges.appendChild(btnBadgesTitle);
   btnBadges.appendChild(btnBadgesSub);
   btnBadges.onclick = () => {
@@ -656,19 +829,38 @@ export function toggleNativeVoicePanel(topWin) {
   };
 
   const btnDemo = doc.createElementNS("http://www.w3.org/1999/xhtml", "button");
-  btnDemo.style.cssText = "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; font-size: 11px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;";
+  btnDemo.style.cssText = "background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 10px 8px; color: #f1f5f9; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: background 0.18s ease, border-color 0.18s ease;";
+
+  const demoSvg = doc.createElementNS(svgNS, "svg");
+  demoSvg.setAttribute("width", "16");
+  demoSvg.setAttribute("height", "16");
+  demoSvg.setAttribute("viewBox", "0 0 24 24");
+  demoSvg.setAttribute("fill", "none");
+  demoSvg.setAttribute("stroke", "#38bdf8");
+  demoSvg.setAttribute("stroke-width", "2");
+  demoSvg.setAttribute("stroke-linecap", "round");
+  demoSvg.setAttribute("stroke-linejoin", "round");
+
+  const zapPoly = doc.createElementNS(svgNS, "polygon");
+  zapPoly.setAttribute("points", "13 2 3 14 12 14 11 22 21 10 12 10 13 2");
+  demoSvg.appendChild(zapPoly);
+
   const btnDemoTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+  btnDemoTitle.style.cssText = "font-size: 11px; font-weight: 600; color: #f1f5f9;";
+
   const btnDemoSub = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
   btnDemoSub.style.fontSize = "9px";
 
   const updateDemoBtn = (isDemo) => {
-    btnDemoTitle.textContent = isDemo ? "🎬 Modo Demo" : "⚡ Modo Normal";
-    btnDemoSub.textContent = isDemo ? "Ritmo humano" : "0.02ms Ultra";
-    btnDemoSub.style.color = isDemo ? "#f59e0b" : "#38bdf8";
+    btnDemoTitle.textContent = isDemo ? "Modo Demo" : "Modo Normal";
+    btnDemoSub.textContent = isDemo ? "Ritmo humano (Demo)" : "Ultra Rápido (0.02ms)";
+    btnDemoSub.style.color = isDemo ? "#fbbf24" : "#38bdf8";
+    demoSvg.setAttribute("stroke", isDemo ? "#fbbf24" : "#38bdf8");
   };
 
   const isDemoCur = Services.prefs?.getBoolPref("zen.voicenav.demo_mode", false);
   updateDemoBtn(isDemoCur);
+  btnDemo.appendChild(demoSvg);
   btnDemo.appendChild(btnDemoTitle);
   btnDemo.appendChild(btnDemoSub);
 
@@ -685,9 +877,9 @@ export function toggleNativeVoicePanel(topWin) {
 
   // Historial
   const historyBox = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  historyBox.style.cssText = "border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;";
+  historyBox.style.cssText = "border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px;";
   const hTitle = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-  hTitle.style.cssText = "font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px;";
+  hTitle.style.cssText = "font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;";
   hTitle.textContent = "Últimos Comandos";
   const historyList = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   historyList.id = "zenkev-panel-history-list";
@@ -695,6 +887,12 @@ export function toggleNativeVoicePanel(topWin) {
   historyBox.appendChild(hTitle);
   historyBox.appendChild(historyList);
   panel.appendChild(historyBox);
+
+  // Tip de atajo al pie del panel
+  const shortcutTip = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+  shortcutTip.style.cssText = "font-size: 10px; color: #64748b; text-align: center; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.04);";
+  shortcutTip.textContent = "Alternar panel con Alt + V";
+  panel.appendChild(shortcutTip);
 
   const container = doc.getElementById("browser") || doc.documentElement;
   container.appendChild(panel);
@@ -2114,9 +2312,18 @@ export function initZenVoiceNav(topWin) {
     // 1. F2 (tecla única rápida)
     // 2. Ctrl + Shift + Espacio (estilo asistente manos libres)
     // 3. Alt + Shift + V (Voice)
+    // 4. Alt + V (Alternar panel Glassmorphism de control)
     const isF2 = e.key === "F2";
     const isCtrlShiftSpace = e.ctrlKey && e.shiftKey && (e.key === " " || e.code === "Space");
     const isAltShiftV = e.altKey && e.shiftKey && e.key.toLowerCase() === "v";
+    const isAltV = e.altKey && !e.shiftKey && !e.ctrlKey && e.key.toLowerCase() === "v";
+
+    if (isAltV) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleNativeVoicePanel(topWin);
+      return;
+    }
 
     if (isF2 || isCtrlShiftSpace || isAltShiftV) {
       e.preventDefault();
@@ -2610,7 +2817,7 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
 
     // Notificar al Chrome HUD nativo y al Child
     const isTier2 = decision.tier === "tier2_semantic";
-    const tierBadge = isTier2 ? "🧠 Tier 2 (Semántico)" : "⚡ Tier 1 (Léxico)";
+    const tierBadge = isTier2 ? "Tier 2 (Semántico)" : "Tier 1 (Léxico)";
     showNativeChromeHUD(topWin, {
       success: !!decision.matched_id,
       transcript,
