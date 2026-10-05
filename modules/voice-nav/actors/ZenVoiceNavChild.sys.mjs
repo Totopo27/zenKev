@@ -94,11 +94,11 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       }
 
       case "ZenVoiceNav:Scroll": {
-        const { direction, amount } = message.data || {};
+        const { direction, amount, fraction } = message.data || {};
         const win = this.contentWindow;
         if (!win) return { success: false };
 
-        const scrollAmount = amount || Math.round(win.innerHeight * 0.7);
+        const scrollAmount = amount || (fraction ? Math.round(win.innerHeight * fraction) : Math.round(win.innerHeight * 0.7));
 
         if (direction === "down") {
           win.scrollBy({ top: scrollAmount, left: 0, behavior: "smooth" });
@@ -205,17 +205,13 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         candidates.push({
           id: String(id),
           role_id: role,
-          roleId: role,
           role: this.accService.getStringRole(role),
           name: candidateName,
           description: accNode.description?.trim() || "",
           bounds,
           is_visible: isVisible,
-          isVisible,
           is_input: isInput,
-          isInput,
           has_default_action: accNode.actionCount > 0,
-          hasDefaultAction: accNode.actionCount > 0,
         });
       });
     }
@@ -256,17 +252,13 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
         candidates.push({
           id,
           role_id: isInput ? 3 : 1,
-          roleId: isInput ? 3 : 1,
           role: el.tagName.toLowerCase(),
           name,
           description: el.getAttribute("aria-description") || "",
           bounds,
           is_visible: isVisible,
-          isVisible,
           is_input: isInput,
-          isInput,
           has_default_action: true,
-          hasDefaultAction: true,
         });
       }
     }
@@ -529,7 +521,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
             }
             el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
             if (i < value.length) {
-              await new Promise(r => this.contentWindow.setTimeout(r, 35));
+              await new Promise(r => this.contentWindow.requestAnimationFrame(r));
             }
           }
           el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
@@ -547,7 +539,7 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
 
       if (submit && el.form) {
         if (typewriter) {
-          await new Promise(r => this.contentWindow.setTimeout(r, 200));
+          await new Promise(r => this.contentWindow.requestAnimationFrame(r));
         }
         try {
           if (typeof el.form.requestSubmit === "function") {
@@ -683,33 +675,34 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       badge.style.cssText = `
         position: absolute;
         left: ${Math.max(0, c.bounds.x)}px;
-        top: ${Math.max(0, c.bounds.y - 22)}px;
-        background: rgba(15, 23, 42, 0.92);
+        top: ${Math.max(0, c.bounds.y - 24)}px;
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 41, 59, 0.78) 100%);
         color: #38bdf8;
-        border: 1px solid rgba(56, 189, 248, 0.6);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 10px rgba(56, 189, 248, 0.35);
-        border-radius: 6px;
-        padding: 2px 7px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+        border: 1px solid rgba(56, 189, 248, 0.45);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(255, 255, 255, 0.12) inset, 0 0 12px rgba(56, 189, 248, 0.25);
+        border-radius: 8px;
+        padding: 3px 8px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, monospace;
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 600;
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 6px;
         pointer-events: none;
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        transition: transform 0.15s ease, opacity 0.15s ease;
       `;
 
       const numSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
       numSpan.style.cssText =
-        "background: #0284c7; color: #ffffff; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 800;";
+        "background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%); color: #ffffff; padding: 1px 6px; border-radius: 5px; font-size: 10px; font-weight: 800; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);";
       numSpan.textContent = String(num);
       badge.appendChild(numSpan);
 
       const labelSpan = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
       labelSpan.style.cssText =
-        "color: #f1f5f9; font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+        "color: #f8fafc; font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.2px;";
       labelSpan.textContent = (c.name || c.role || "item").slice(0, 22);
       badge.appendChild(labelSpan);
 
@@ -734,22 +727,21 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
   }
 
   /**
-   * Variante Videntes: Destello visual (pulse ring) de 400ms sobre el elemento activado.
+   * Variante Videntes: Destello visual (pulse ring) sobre el elemento activado
+   * sincronizado mediante la Web Animations API para evitar temporizadores artificiales.
    */
   #highlightElement(domNode) {
     if (!domNode || !(domNode instanceof this.contentWindow.Element)) return;
-    const prevOutline = domNode.style.outline;
-    const prevTransition = domNode.style.transition;
-
-    domNode.style.transition = "outline 0.15s ease-in-out";
-    domNode.style.outline = "3px solid #0969da";
-
-    this.contentWindow.setTimeout(() => {
-      try {
-        domNode.style.outline = prevOutline;
-        domNode.style.transition = prevTransition;
-      } catch (_) {}
-    }, 400);
+    try {
+      const anim = domNode.animate(
+        [
+          { outline: "3px solid #0969da" },
+          { outline: "3px solid transparent" }
+        ],
+        { duration: 400, easing: "ease-out" }
+      );
+      anim.finished.catch(() => {});
+    } catch (_) {}
   }
 
   /**
@@ -824,11 +816,23 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
     hud.appendChild(textContainer);
 
     hud.style.opacity = "1";
-    if (this.contentWindow) {
-      this.contentWindow.clearTimeout(this._hudTimeout);
-      this._hudTimeout = this.contentWindow.setTimeout(() => {
-        if (hud) hud.style.opacity = "0";
-      }, 4000);
+    if (this._hudAnim) {
+      try { this._hudAnim.cancel(); } catch (_) {}
+    }
+    try {
+      this._hudAnim = hud.animate(
+        [
+          { opacity: 1, offset: 0 },
+          { opacity: 1, offset: 0.85 },
+          { opacity: 0, offset: 1 }
+        ],
+        { duration: 4000, fill: "forwards" }
+      );
+      this._hudAnim.finished.then(() => {
+        hud.style.opacity = "0";
+      }).catch(() => {});
+    } catch (_) {
+      hud.style.opacity = "1";
     }
   }
 

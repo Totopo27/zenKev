@@ -413,9 +413,9 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   // Feedback auditivo sutil (Earcon)
   playEarcon(success ? "success" : "error", win);
 
-  // Limpiar temporizador previo
-  if (win._zenkevChromeHudTimeout) {
-    win.clearTimeout(win._zenkevChromeHudTimeout);
+  // Cancelar animación previa si existe
+  if (win._zenkevChromeHudAnim) {
+    try { win._zenkevChromeHudAnim.cancel(); } catch (_) {}
   }
   const isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
   const displayDuration = isDemo ? 3800 : 2200;
@@ -423,12 +423,22 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
     try { logRecentCommand(transcript, latencyMs, tier); } catch (_) {}
   }
 
-  win._zenkevChromeHudTimeout = win.setTimeout(() => {
-    if (hud) {
+  try {
+    win._zenkevChromeHudAnim = hud.animate(
+      [
+        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0 },
+        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0.85 },
+        { opacity: 0, transform: "translateX(-50%) translateY(-14px)", offset: 1 }
+      ],
+      { duration: displayDuration, fill: "forwards" }
+    );
+    win._zenkevChromeHudAnim.finished.then(() => {
       hud.style.opacity = "0";
       hud.style.transform = "translateX(-50%) translateY(-14px)";
-    }
-  }, displayDuration);
+    }).catch(() => {});
+  } catch (_) {
+    hud.style.opacity = "0";
+  }
 }
 
 // Exponer en Services para consumo global en Gecko
@@ -1557,6 +1567,24 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
   }
 
   // 4. Desplazamiento (Scroll)
+  if (/^bajar\s+un\s+poco$|^bajar\s+medio$|^scroll\s+medio\s+abajo$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll medio abajo");
+    if (actor?.scroll) {
+      await actor.scroll("down", null, 0.35);
+    }
+    notifyHUD(true, "Bajar un poco");
+    return { handled: true, action: "scroll_down_half" };
+  }
+
+  if (/^subir\s+un\s+poco$|^subir\s+medio$|^scroll\s+medio\s+arriba$/i.test(text)) {
+    logDebug("Comando global detectado: Scroll medio arriba");
+    if (actor?.scroll) {
+      await actor.scroll("up", null, 0.35);
+    }
+    notifyHUD(true, "Subir un poco");
+    return { handled: true, action: "scroll_up_half" };
+  }
+
   if (/^bajar$|^scroll\s+abajo$|^desplazar\s+abajo$|^m[aá]s\s+abajo$|^baja$/i.test(text)) {
     logDebug("Comando global detectado: Scroll abajo");
     if (actor?.scroll) {
@@ -2121,6 +2149,153 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
       }
     } catch (e) {
       logDebug(`Error al imprimir: ${e}`);
+    }
+  }
+
+  // 7.16 Búsqueda en Página (Find in Page)
+  const findMatch = text.match(/^(?:buscar(?:\s+en\s+(?:la\s+)?p[aá]gina)?|encontrar)\s+(.+)$/i);
+  if (findMatch && findMatch[1]) {
+    const query = findMatch[1].trim();
+    logDebug(`Comando global detectado: Buscar en página "${query}"`);
+    try {
+      if (typeof win.gLazyFindCommand === "function") {
+        win.gLazyFindCommand("onFindCommand");
+      }
+      const findBar = win.gFindBar || await gBrowser?.getFindBar?.();
+      if (findBar) {
+        findBar.open();
+        findBar._findField.value = query;
+        if (typeof findBar.startFind === "function") {
+          findBar.startFind(findBar.FIND_NORMAL);
+        }
+        notifyHUD(true, `Buscando: "${query}"`);
+        return { handled: true, action: "find_in_page", query };
+      }
+    } catch (e) {
+      logDebug(`Error en buscar en página: ${e}`);
+    }
+  }
+
+  if (/^(?:siguiente\s+coincidencia|buscar\s+siguiente|siguiente\s+resultado)$/i.test(text)) {
+    logDebug("Comando global detectado: Siguiente coincidencia");
+    try {
+      const findBar = win.gFindBar || await gBrowser?.getFindBar?.();
+      if (findBar && typeof findBar.onFindAgainCommand === "function") {
+        findBar.onFindAgainCommand(false);
+        notifyHUD(true, "Siguiente coincidencia");
+        return { handled: true, action: "find_next" };
+      }
+    } catch (e) {
+      logDebug(`Error en find next: ${e}`);
+    }
+  }
+
+  if (/^(?:anterior\s+coincidencia|buscar\s+anterior|resultado\s+anterior)$/i.test(text)) {
+    logDebug("Comando global detectado: Anterior coincidencia");
+    try {
+      const findBar = win.gFindBar || await gBrowser?.getFindBar?.();
+      if (findBar && typeof findBar.onFindAgainCommand === "function") {
+        findBar.onFindAgainCommand(true);
+        notifyHUD(true, "Anterior coincidencia");
+        return { handled: true, action: "find_previous" };
+      }
+    } catch (e) {
+      logDebug(`Error en find previous: ${e}`);
+    }
+  }
+
+  if (/^(?:cerrar\s+b[uú]squeda|ocultar\s+b[uú]squeda)$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar búsqueda");
+    try {
+      const findBar = win.gFindBar || await gBrowser?.getFindBar?.();
+      if (findBar && typeof findBar.close === "function") {
+        findBar.close();
+        notifyHUD(true, "Búsqueda cerrada");
+        return { handled: true, action: "find_close" };
+      }
+    } catch (e) {
+      logDebug(`Error al cerrar barra de búsqueda: ${e}`);
+    }
+  }
+
+  // 7.17 Modo Pantalla Completa (Full Screen)
+  if (/^(?:pantalla\s+completa|modo\s+pantalla\s+completa|fullscreen)$/i.test(text)) {
+    logDebug("Comando global detectado: Alternar pantalla completa");
+    try {
+      if (typeof win.BrowserFullScreen === "function") {
+        win.BrowserFullScreen();
+      } else if (typeof win.fullScreen !== "undefined") {
+        win.fullScreen = !win.fullScreen;
+      }
+      notifyHUD(true, "Pantalla completa");
+      return { handled: true, action: "toggle_fullscreen" };
+    } catch (e) {
+      logDebug(`Error en pantalla completa: ${e}`);
+    }
+  }
+
+  // 7.18 Control de Audio de Pestaña (Mute / Unmute Tab)
+  if (/^(?:silenciar\s+pesta[nñ]a|mutear\s+pesta[nñ]a|apagar\s+sonido|silenciar\s+audio)$/i.test(text)) {
+    logDebug("Comando global detectado: Silenciar audio de pestaña");
+    try {
+      const currentTab = gBrowser?.selectedTab;
+      if (currentTab) {
+        if (typeof currentTab.toggleMuteAudio === "function") {
+          if (!currentTab.soundPlaying && !currentTab.muted) {
+            currentTab.toggleMuteAudio();
+          } else if (!currentTab.muted) {
+            currentTab.toggleMuteAudio();
+          }
+        } else if (typeof win.gBrowser?.toggleMuteAudioOnSelectedTab === "function") {
+          win.gBrowser.toggleMuteAudioOnSelectedTab();
+        }
+        notifyHUD(true, "Pestaña silenciada");
+        return { handled: true, action: "mute_tab" };
+      }
+    } catch (e) {
+      logDebug(`Error al silenciar pestaña: ${e}`);
+    }
+  }
+
+  if (/^(?:activar\s+sonido|desmutear\s+pesta[nñ]a|reactivar\s+audio|reproducir\s+audio)$/i.test(text)) {
+    logDebug("Comando global detectado: Reactivar audio de pestaña");
+    try {
+      const currentTab = gBrowser?.selectedTab;
+      if (currentTab) {
+        if (typeof currentTab.toggleMuteAudio === "function" && currentTab.muted) {
+          currentTab.toggleMuteAudio();
+        } else if (typeof win.gBrowser?.toggleMuteAudioOnSelectedTab === "function") {
+          win.gBrowser.toggleMuteAudioOnSelectedTab();
+        }
+        notifyHUD(true, "Audio activado");
+        return { handled: true, action: "unmute_tab" };
+      }
+    } catch (e) {
+      logDebug(`Error al activar audio de pestaña: ${e}`);
+    }
+  }
+
+  // 7.19 Modo Lectura (Reader Mode)
+  if (/^(?:modo\s+lectura|activar\s+modo\s+lectura|vista\s+de\s+lectura|lector)$/i.test(text)) {
+    logDebug("Comando global detectado: Modo lectura");
+    try {
+      const browser = gBrowser?.selectedBrowser;
+      if (win.AboutReaderParent?.toggleReaderMode && browser) {
+        win.AboutReaderParent.toggleReaderMode(browser);
+        notifyHUD(true, "Modo lectura");
+        return { handled: true, action: "toggle_reader_mode" };
+      } else {
+        const readerBtn = win.document?.getElementById("reader-mode-button");
+        if (readerBtn) {
+          readerBtn.click();
+          notifyHUD(true, "Modo lectura");
+          return { handled: true, action: "toggle_reader_mode" };
+        }
+      }
+      notifyHUD(false, "Modo lectura no disponible en esta página");
+      return { handled: true, action: "reader_mode_unavailable" };
+    } catch (e) {
+      logDebug(`Error en modo lectura: ${e}`);
     }
   }
 

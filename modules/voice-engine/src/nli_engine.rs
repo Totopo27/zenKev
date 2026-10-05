@@ -59,6 +59,22 @@ const SEMANTIC_CLUSTERS: &[SemanticCluster] = &[
         concept: "voice_panel",
         terms: &["vumetro", "control de voz", "microfono", "panel", "widget", "ventana flotante", "panel de voz", "zenkev"],
     },
+    SemanticCluster {
+        concept: "media_playback",
+        terms: &["reproducir", "pausar", "play", "pause", "parar", "reanudar", "silenciar", "mutear", "volumen", "video", "audio", "cancion", "musica", "podcast"],
+    },
+    SemanticCluster {
+        concept: "forms_confirmation_submit",
+        terms: &["enviar", "guardar", "confirmar", "aceptar", "registrar", "registrarse", "suscribirse", "submit", "save", "confirm", "send", "continuar", "listo", "hecho"],
+    },
+    SemanticCluster {
+        concept: "social_share",
+        terms: &["compartir", "difundir", "enviar a", "share", "tweet", "publicar", "postear", "copiar enlace"],
+    },
+    SemanticCluster {
+        concept: "navigation_tabs_windows",
+        terms: &["pestaña", "pestana", "pestañas", "pestanas", "solapa", "ventana", "tab", "tabs", "navegar"],
+    },
 ];
 
 /// Evaluador de Intención Semántica con Arquitectura Híbrida de Dos Niveles:
@@ -267,7 +283,9 @@ impl IntentClassifier {
                     let matches_candidate = cluster.terms.iter().any(|&term| {
                         cand_words.iter().any(|&w| w == term || (term.len() > 3 && w.starts_with(term)))
                             || cand_name.contains(term)
-                            || strsim::jaro_winkler(&cand_name, term) > 0.80
+                            || (cand_name.chars().next() == term.chars().next()
+                                && (cand_name.len() as isize - term.len() as isize).abs() <= 3
+                                && strsim::jaro_winkler(&cand_name, term) > 0.80)
                     });
 
                     if matches_candidate {

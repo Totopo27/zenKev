@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 use crate::protocol::{CandidateNode, RankedCandidate};
 use strsim::sorensen_dice;
 
@@ -35,6 +39,60 @@ pub fn normalize_text(input: &str) -> String {
         .join(" ")
 }
 
+/// Normalización fonética rápida en español para mitigar errores de transcripción:
+/// - Homogeneiza b/v -> v
+/// - Homogeneiza c (ante e, i), z -> s
+/// - Remueve 'h' muda
+/// - Homogeneiza y, ll -> y
+/// Optimizado con iterador de chars sin doble asignación de Vec<char>.
+pub fn phonetic_normalize(input: &str) -> String {
+    let text = normalize_text(input);
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut prev = '\0';
+
+    while let Some(c) = chars.next() {
+        match c {
+            'b' => out.push('v'),
+            'h' => {
+                if prev == 'c' {
+                    out.push('h');
+                }
+            }
+            'c' => {
+                if let Some(&next) = chars.peek() {
+                    if next == 'e' || next == 'i' {
+                        out.push('s');
+                    } else if next == 'h' {
+                        out.push('c');
+                    } else {
+                        out.push('k');
+                    }
+                } else {
+                    out.push('k');
+                }
+            }
+            'z' => out.push('s'),
+            'q' => out.push('k'),
+            'l' => {
+                if let Some(&next) = chars.peek() {
+                    if next == 'l' {
+                        chars.next(); // consumir segunda 'l'
+                        out.push('y');
+                    } else {
+                        out.push('l');
+                    }
+                } else {
+                    out.push('l');
+                }
+            }
+            other => out.push(other),
+        }
+        prev = c;
+    }
+    out
+}
+
 /// Filtro léxico ultra-rápido (<1ms en CPU).
 /// Reduce un conjunto grande de candidatos (ej. 300) a los `top_k` (ej. 10)
 /// con mayor similitud frente a la transcripción del usuario.
@@ -44,6 +102,7 @@ pub fn rank_and_prune(
     top_k: usize,
 ) -> Vec<RankedCandidate> {
     let norm_transcript = normalize_text(transcript);
+    let phonetic_transcript = phonetic_normalize(transcript);
     let transcript_words: Vec<&str> = norm_transcript.split_whitespace().collect();
 
     let mut scored: Vec<RankedCandidate> = candidates
@@ -59,7 +118,22 @@ pub fn rank_and_prune(
                 0.0
             };
 
-            // 2. Coincidencia directa de palabras clave contenidas
+            // 2. Similitud fonética tolerante a confusiones de dictado (b/v, s/c/z, etc.)
+            let phonetic_name = phonetic_normalize(&node.name);
+            let phonetic_sim = if !phonetic_name.is_empty() {
+                sorensen_dice(&phonetic_transcript, &phonetic_name)
+            } else {
+                0.0
+            };
+
+            // 3. Similitud de prefijo / palabras con Jaro-Winkler
+            let jaro_sim = if !norm_name.is_empty() {
+                strsim::jaro_winkler(&norm_transcript, &norm_name)
+            } else {
+                0.0
+            };
+
+            // 4. Coincidencia directa de palabras clave contenidas
             let mut word_overlap = 0.0;
             if !norm_name.is_empty() {
                 let matches = transcript_words
@@ -71,9 +145,23 @@ pub fn rank_and_prune(
                 }
             }
 
-            // 3. Ponderación combinada
-            // 70% Sørensen-Dice + 30% solapamiento léxico de tokens
-            let combined_score = (name_sim * 0.7) + (word_overlap * 0.3);
+            // 5. Bonificación por visibilidad y posición en el Viewport
+            // Elementos en pantalla con dimensiones razonables y en zona central/superior
+            let mut viewport_bonus = 0.0;
+            if node.is_visible && node.bounds.width > 10.0 && node.bounds.height > 10.0 {
+                if node.bounds.y >= 0.0 && node.bounds.y <= 900.0 {
+                    viewport_bonus = 0.05; // Bonificación sutil por visibilidad activa en zona útil
+                }
+            }
+
+            // 6. Ponderación combinada equilibrada
+            // 40% Sørensen-Dice + 25% Fonética acústica + 15% Jaro-Winkler + 15% Solapamiento de palabras + 5% Posición
+            let text_score = (name_sim * 0.40)
+                + (phonetic_sim * 0.25)
+                + (jaro_sim * 0.15)
+                + (word_overlap * 0.15);
+
+            let combined_score = (text_score + viewport_bonus).min(1.0);
 
             RankedCandidate {
                 id: node.id.clone(),
@@ -127,5 +215,19 @@ mod tests {
         let pruned = rank_and_prune("abrir configuración", &candidates, 2);
         assert_eq!(pruned.len(), 2);
         assert_eq!(pruned[0].id, "2"); // Debe seleccionar "Configuración" como primer puesto
+    }
+
+    #[test]
+    fn test_phonetic_resilience() {
+        let candidates = vec![
+            make_node("1", "Guardar cambios", "button"),
+            make_node("2", "Cancelar", "button"),
+        ];
+
+        // "b" vs "v" y sin acentos
+        let pruned = rank_and_prune("guardar canvios", &candidates, 1);
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(pruned[0].id, "1");
+        assert!(pruned[0].lexical_score > 0.60);
     }
 }

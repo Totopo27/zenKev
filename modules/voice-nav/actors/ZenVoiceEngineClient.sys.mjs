@@ -37,8 +37,9 @@ export class ZenVoiceEngineClient {
   #process = null;
   #pendingRequests = []; // Cola de resolvers { resolve, reject }
   #readBuffer = "";
-  #isStarting = false;
+  #startPromise = null;
   #enginePath = null;
+  #observerBound = false;
 
   constructor(enginePath = null) {
     if (enginePath) {
@@ -50,21 +51,41 @@ export class ZenVoiceEngineClient {
         this.#enginePath = PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
       }
     }
+
+    this.#registerShutdownObserver();
+  }
+
+  #registerShutdownObserver() {
+    if (this.#observerBound) return;
+    this.#observerBound = true;
+    Services.obs.addObserver(this, "quit-application-granted");
+  }
+
+  observe(subject, topic, data) {
+    if (topic === "quit-application-granted") {
+      this.shutdown();
+    }
   }
 
   /**
    * Inicia el subproceso zen-voice-engine si no está activo.
+   * Utiliza una promesa única de arranque para evitar carreras y polling con timers.
    */
   async ensureStarted() {
     if (this.#process) return true;
-    if (this.#isStarting) {
-      while (this.#isStarting) {
-        await new Promise((r) => setTimeout(r, 20));
-      }
-      return !!this.#process;
+    if (this.#startPromise) {
+      return this.#startPromise;
     }
 
-    this.#isStarting = true;
+    this.#startPromise = this.#doStart();
+    try {
+      return await this.#startPromise;
+    } finally {
+      this.#startPromise = null;
+    }
+  }
+
+  async #doStart() {
     try {
       const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
                       PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
@@ -80,11 +101,9 @@ export class ZenVoiceEngineClient {
       });
 
       this.#startReadLoop();
-      this.#isStarting = false;
       return true;
     } catch (e) {
-      console.error("[ZenVoiceEngineClient] Error al arrancar subproceso del motor de voz:", e);
-      this.#isStarting = false;
+      console.warn("[ZenVoiceEngineClient] Subproceso de voz no disponible o falló al iniciar:", e?.message || e);
       this.#process = null;
       return false;
     }
@@ -252,6 +271,12 @@ export class ZenVoiceEngineClient {
   }
 
   #cleanup() {
+    if (this.#observerBound) {
+      try {
+        Services.obs.removeObserver(this, "quit-application-granted");
+      } catch (_) {}
+      this.#observerBound = false;
+    }
     if (this.#process) {
       try {
         this.#process.kill();
