@@ -298,6 +298,48 @@
       </div>
     </div>
 
+    <!-- Camino 2: Edge Cases del DOM (Dropdowns, Fechas, Sliders e Iframes) -->
+    <div class="grid" style="margin-bottom: 30px;">
+      <!-- Dropdowns Complejos, Sliders y Fechas -->
+      <div class="card">
+        <h2>🎛️ Controles Complejos (Selects, Fechas & Sliders)</h2>
+        <div class="form-group">
+          <label for="country-select">País o Región (&lt;select&gt;)</label>
+          <select id="country-select" style="width:100%; background:#111822; border:1px solid var(--card-border); padding:10px; border-radius:8px; color:#fff;" onchange="logAction('País seleccionado: ' + this.options[this.selectedIndex].text)">
+            <option value="">Selecciona un país...</option>
+            <option value="AR">Argentina</option>
+            <option value="ES">España</option>
+            <option value="MX">México</option>
+            <option value="CO">Colombia</option>
+            <option value="CL">Chile</option>
+            <option value="UY">Uruguay</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="birth-date">Fecha de Nacimiento (&lt;input type="date"&gt;)</label>
+          <input type="date" id="birth-date" style="width:100%; background:#111822; border:1px solid var(--card-border); padding:10px; border-radius:8px; color:#fff;" onchange="logAction('Fecha elegida: ' + this.value)">
+        </div>
+
+        <div class="form-group">
+          <label for="volume-slider">Control de Volumen / Rango (&lt;input type="range"&gt;)</label>
+          <input type="range" id="volume-slider" min="0" max="100" value="50" style="width:100%; accent-color: var(--accent);" oninput="logAction('Volumen: ' + this.value + '%')">
+        </div>
+
+        <div class="form-group">
+          <label for="quantity-number">Cantidad de Entradas (&lt;input type="number"&gt;)</label>
+          <input type="number" id="quantity-number" min="1" max="10" value="1" style="width:100%; background:#111822; border:1px solid var(--card-border); padding:10px; border-radius:8px; color:#fff;" onchange="logAction('Cantidad: ' + this.value)">
+        </div>
+      </div>
+
+      <!-- Iframe Simulado (Pasarela de Pago / Embed) -->
+      <div class="card">
+        <h2>💳 Pasarela de Pago Incrustada (&lt;iframe&gt;)</h2>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Simula un marco de Stripe / MercadoPago independiente:</p>
+        <iframe id="payment-frame" srcdoc='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#111827;color:#f9fafb;font-family:sans-serif;padding:15px;margin:0;}button{background:#10b981;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:600;width:100%;margin-top:10px;}input{width:100%;box-sizing:border-box;background:#1f2937;border:1px solid #374151;color:#fff;padding:8px;border-radius:6px;margin-bottom:8px;}</style></head><body><h4 style="margin:0 0 10px 0; color:#34d399;">🔒 Checkout Seguro</h4><input type="text" placeholder="Número de tarjeta..." id="card-num"><button id="btn-pay" onclick="window.parent.postMessage({action: &quot;Pagar con Tarjeta completado en iframe&quot;}, &quot;*&quot;)">💳 Confirmar y Pagar</button><script>window.addEventListener("message",function(){});</script></body></html>' style="width:100%; height:190px; border:1px dashed var(--accent); border-radius:8px; background:#111827;"></iframe>
+      </div>
+    </div>
+
     <!-- Registro de Actividad -->
     <div class="card">
       <h2>📊 Registro de Eventos en Tiempo Real</h2>
@@ -314,6 +356,13 @@
       const time = new Date().toLocaleTimeString();
       log.textContent = `[${time}] Acción ejecutada: "${actionName}"\n` + log.textContent;
     }
+
+    // Escuchar mensajes provenientes del iframe de pago
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.action) {
+        logAction(event.data.action);
+      }
+    });
   </script>
 </body>
 </html>

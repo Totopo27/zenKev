@@ -45,6 +45,18 @@ if "%CHOICE%"=="1" (
     )
     set "DEV_PROFILE=%TEMP%\zenkev-test-profile"
     if not exist "%DEV_PROFILE%" mkdir "%DEV_PROFILE%"
+    if exist "%ENGINE_EXE%" (
+        echo [*] Copiando motor Rust al perfil de pruebas...
+        copy /y "%ENGINE_EXE%" "%DEV_PROFILE%\zen-voice-engine.exe" >nul
+    )
+    echo [*] Configurando preferencias de depuracion y navegacion por voz...
+    (
+        echo user_pref("devtools.chrome.enabled", true^);
+        echo user_pref("devtools.debugger.remote-enabled", true^);
+        echo user_pref("zen.voicenav.enabled", true^);
+        echo user_pref("zen.voicenav.debug", true^);
+        echo user_pref("zen.voicenav.mode", "both"^);
+    ) > "%DEV_PROFILE%\user.js"
     echo Iniciando Zen Browser con consola JS...
     start "" "%ZEN_PATH%" -profile "%DEV_PROFILE%" -jsconsole "file:///%ROOT%test-page.html"
 )

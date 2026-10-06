@@ -11,7 +11,7 @@
  * 4. Actúa de puente hacia el demonio Rust (IPC / Native Messaging vía Subprocess).
  */
 
-import { ZenVoiceEngineClient } from "resource:///actors/ZenVoiceEngineClient.sys.mjs";
+import { ZenVoiceEngineClient } from "./ZenVoiceEngineClient.sys.mjs";
 
 function logDebug(msg) {
   let isDebug = false;
@@ -2523,16 +2523,85 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
   }
 
   /**
-   * Obtiene los candidatos interactivos de la pestaña actual.
+   * Obtiene los candidatos interactivos de la pestaña actual, agregando
+   * todos los contextos de navegación (top-level y sub-marcos / iframes).
    * @param {boolean} onlyVisible - Si es true, poda elementos fuera del viewport.
    */
   async getCandidates(onlyVisible = true) {
     try {
-      return await this.sendQuery("ZenVoiceNav:GetCandidates", { onlyVisible });
+      // 1. Obtener todos los contextos en el sub-árbol de la pestaña
+      const rootBc = this.browsingContext?.top || this.browsingContext;
+      const bcs = rootBc?.getAllBrowsingContextsInSubtree
+        ? rootBc.getAllBrowsingContextsInSubtree()
+        : [this.browsingContext];
+
+      const allCandidates = [];
+      let topViewport = { width: 1280, height: 800 };
+      let topUrl = "";
+      let topTitle = "";
+
+      for (const bc of bcs) {
+        if (!bc || bc.isDiscarded) continue;
+        try {
+          const actor = bc.currentWindowGlobal?.getActor("ZenVoiceNav");
+          if (!actor) continue;
+
+          const res = await actor.sendQuery("ZenVoiceNav:GetCandidates", { onlyVisible });
+          if (!res || !res.candidates) continue;
+
+          const isTop = bc === rootBc;
+          if (isTop) {
+            topViewport = res.viewport || topViewport;
+            topUrl = res.url || "";
+            topTitle = res.title || "";
+          }
+
+          const bcId = bc.id;
+
+          for (const cand of res.candidates) {
+            // Asignar ID compuesto con el BrowsingContext para enrutar acciones precisas a iframes
+            cand.bcId = bcId;
+            cand.rawId = cand.id;
+            cand.id = isTop ? String(cand.id) : `f${bcId}_${cand.id}`;
+            cand.isIframe = !isTop;
+            allCandidates.push(cand);
+          }
+        } catch (_) {}
+      }
+
+      return {
+        candidates: allCandidates,
+        viewport: topViewport,
+        url: topUrl,
+        title: topTitle,
+      };
     } catch (e) {
-      console.error("[ZenVoiceNavParent] Error al obtener candidatos AOM:", e);
+      console.error("[ZenVoiceNavParent] Error al obtener candidatos AOM multi-frame:", e);
       return { candidates: [], error: e.message };
     }
+  }
+
+  /**
+   * Resuelve el actor adecuado (top o iframe) a partir de un targetId.
+   */
+  #resolveTargetActor(targetId) {
+    if (!targetId) return this;
+    const strId = String(targetId);
+    const match = strId.match(/^f(\d+)_(.+)$/);
+    if (match) {
+      const bcId = parseInt(match[1], 10);
+      const rawId = match[2];
+      const rootBc = this.browsingContext?.top || this.browsingContext;
+      const bcs = rootBc?.getAllBrowsingContextsInSubtree ? rootBc.getAllBrowsingContextsInSubtree() : [];
+      const foundBc = bcs.find(b => b.id === bcId);
+      if (foundBc) {
+        const actor = foundBc.currentWindowGlobal?.getActor("ZenVoiceNav");
+        if (actor) {
+          return { actor, realId: rawId };
+        }
+      }
+    }
+    return { actor: this, realId: targetId };
   }
 
   /**
@@ -2543,9 +2612,10 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async executeAction(targetId, actionIndex = 0, mode = null) {
     const resolvedMode = getVoiceNavMode(mode);
+    const { actor, realId } = this.#resolveTargetActor(targetId);
     try {
-      return await this.sendQuery("ZenVoiceNav:ExecuteAction", {
-        targetId: String(targetId),
+      return await actor.sendQuery("ZenVoiceNav:ExecuteAction", {
+        targetId: String(realId),
         actionIndex,
         mode: resolvedMode,
       });
@@ -2626,8 +2696,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       try {
         isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
       } catch (_) {}
-      return await this.sendQuery("ZenVoiceNav:SetInputValue", {
-        targetId: targetId ? String(targetId) : null,
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:SetInputValue", {
+        targetId: realId ? String(realId) : null,
         value,
         append,
         submit,
@@ -2644,8 +2715,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async clearInput(targetId = null) {
     try {
-      return await this.sendQuery("ZenVoiceNav:ClearInput", {
-        targetId: targetId ? String(targetId) : null,
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:ClearInput", {
+        targetId: realId ? String(realId) : null,
       });
     } catch (e) {
       return { success: false, error: e.message };
@@ -2657,8 +2729,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async submitForm(targetId = null) {
     try {
-      return await this.sendQuery("ZenVoiceNav:SubmitForm", {
-        targetId: targetId ? String(targetId) : null,
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:SubmitForm", {
+        targetId: realId ? String(realId) : null,
       });
     } catch (e) {
       return { success: false, error: e.message };
@@ -2670,10 +2743,44 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async pressEnter(targetId = null) {
     try {
-      return await this.sendQuery("ZenVoiceNav:PressEnter", {
-        targetId: targetId ? String(targetId) : null,
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:PressEnter", {
+        targetId: realId ? String(realId) : null,
       });
     } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Selecciona una opción en un <select> nativo o combobox ARIA.
+   */
+  async selectOption(targetId, optionQuery) {
+    try {
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:SelectOption", {
+        targetId: realId ? String(realId) : null,
+        optionQuery,
+      });
+    } catch (e) {
+      console.error(`[ZenVoiceNavParent] Error en selectOption:`, e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Ajusta un slider o input numérico (range, number, role=slider).
+   */
+  async adjustRange(targetId, direction = "set", amount = 0) {
+    try {
+      const { actor, realId } = this.#resolveTargetActor(targetId);
+      return await actor.sendQuery("ZenVoiceNav:AdjustRange", {
+        targetId: realId ? String(realId) : null,
+        direction,
+        amount,
+      });
+    } catch (e) {
+      console.error(`[ZenVoiceNavParent] Error en adjustRange:`, e);
       return { success: false, error: e.message };
     }
   }
@@ -2759,11 +2866,11 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
              null;
     }
 
-    // 2.0. Dictado Inteligente en Campos de Formulario (Imperativo y Natural)
-    const DICT_VERBS = "(?:escribir|escribe|escriba|dictar|dicta|dicte|poner|pon|ponga|introducir|introduce|introduzca|tipear|tipea|teclear|teclea)";
-    const fillWithMatch = transcript.match(/^(?:rellenar|rellena|rellene|llenar|llena|llene)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+)?([a-z0-9ñáéíóú\s_-]+?)\s+con\s+(.+)$/i);
-    const typeInEndMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+?)\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+)$`, "i"));
-    const typeInMidMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+?)\\s+(.+)$`, "i"));
+    // 2.0. Dictado Inteligente en Campos de Formulario (Imperativo y Natural multilingüe: ES / EN / PT)
+    const DICT_VERBS = "(?:escribir|escribe|escriba|dictar|dicta|dicte|poner|pon|ponga|introducir|introduce|introduzca|tipear|tipea|teclear|teclea|type|write|input|enter|fill|digite|escreva|inserir)";
+    const fillWithMatch = transcript.match(/^(?:rellenar|rellena|rellene|llenar|llena|llene|fill|preencher)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\s_-]+?)\s+(?:con|with|com)\s+(.+)$/i);
+    const typeInEndMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+?)\\s+(?:en|in|into|no|na)\\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\\s_-]+)$`, "i"));
+    const typeInMidMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(?:en|in|into|no|na)\\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\\s_-]+?)\\s+(.+)$`, "i"));
     const directVerbMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+)$`, "i"));
 
     let dictTarget = null;
@@ -2906,6 +3013,91 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           latencyMs: 0.05,
         });
         return { success: true, action: "clear_field", targetId: targetCandidate.id };
+      }
+    }
+
+    // 2.0.1. Selección de opción en Selects o Dropdowns ("elegir opción Argentina", "select country Spain", "pick option 2")
+    const selectOptionMatch = transcript.match(/^(?:elegir|elige|elija|seleccionar|selecciona|seleccione|escoger|escoge|escoja|marcar|marca|marque|select|choose|pick|escolher|selecione)\s+(?:la\s+|the\s+|a\s+)?(?:opci[oó]n\s+|option\s+|opção\s+)?([a-z0-9ñáéíóúç\s_-]+?)(?:\s+(?:en|in|into|no|na)\s+(?:el\s+|la\s+|the\s+|o\s+)?(?:select|men[uú]|desplegable|dropdown|campo|field)?\s*([a-z0-9ñáéíóúç\s_-]+))?$/i);
+    if (selectOptionMatch && selectOptionMatch[1]) {
+      const optionVal = selectOptionMatch[1].trim();
+      const selectFieldName = selectOptionMatch[2]?.trim();
+
+      // Si no es un comando de selección numérica (ej. no es "opción 2" si fue capturado como tal, aunque selectOption también maneja número de opción)
+      let selectTarget = null;
+      if (selectFieldName) {
+        selectTarget = findInputTarget(selectFieldName, candidates);
+      }
+      if (!selectTarget) {
+        // Buscar candidatos con rol combobox, listbox o select
+        const selects = candidates.filter(c =>
+          c.role_id === 7 || // Ci.nsIAccessibleRole.ROLE_COMBOBOX
+          c.role?.includes("combobox") ||
+          c.role?.includes("select") ||
+          c.role?.includes("listbox")
+        );
+        if (selects.length > 0) {
+          selectTarget = selects[0];
+        }
+      }
+
+      logDebug(`Comando de selección de opción: "${optionVal}" en target ${selectTarget?.id || 'activo'}`);
+      const selRes = await this.selectOption(selectTarget?.id || null, optionVal);
+      if (selRes && selRes.success) {
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript,
+          label: `Seleccionado: ${selRes.selectedText || optionVal}`,
+          latencyMs: 0.05,
+        });
+        return {
+          success: true,
+          action: "select_option",
+          targetId: selectTarget?.id,
+          selectedText: selRes.selectedText || optionVal,
+        };
+      }
+    }
+
+    // 2.0.2. Ajuste de Sliders y Controles de Rango ("subir volumen a 80", "set volume to 80", "volume up 10")
+    const rangeMatch = transcript.match(/^(?:ajustar|ajusta|poner|pon|colocar|coloca|subir|sube|bajar|baja|aumentar|aumenta|reducir|reduce|set|adjust|increase|decrease|volume\s+up|volume\s+down)\s+(?:el\s+|la\s+|the\s+|o\s+)?([a-z0-9ñáéíóúç\s_-]+?)\s+(?:a|al|en|to|by)?\s*([0-9]{1,3})%?$/i);
+    if (rangeMatch && rangeMatch[1] && rangeMatch[2]) {
+      const rangeFieldName = rangeMatch[1].trim();
+      const targetNum = parseFloat(rangeMatch[2]);
+      const verb = transcript.trim().split(/\s+/)[0].toLowerCase();
+      let dir = "set";
+      if (/^(?:subir|sube|aumentar|aumenta|increase)$/i.test(verb) || transcript.toLowerCase().includes("volume up")) {
+        dir = "increment";
+      } else if (/^(?:bajar|baja|reducir|reduce|decrease)$/i.test(verb) || transcript.toLowerCase().includes("volume down")) {
+        dir = "decrement";
+      }
+
+      let sliderTarget = findInputTarget(rangeFieldName, candidates);
+      if (!sliderTarget) {
+        const sliders = candidates.filter(c =>
+          c.role?.includes("slider") ||
+          c.role?.includes("range") ||
+          c.role?.includes("spinbutton")
+        );
+        if (sliders.length > 0) {
+          sliderTarget = sliders[0];
+        }
+      }
+
+      logDebug(`Ajuste de slider: "${rangeFieldName}" -> ${targetNum} (${dir}) en target ${sliderTarget?.id || 'activo'}`);
+      const adjRes = await this.adjustRange(sliderTarget?.id || null, dir, targetNum);
+      if (adjRes && adjRes.success) {
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript,
+          label: `Slider ajustado: ${adjRes.value}`,
+          latencyMs: 0.05,
+        });
+        return {
+          success: true,
+          action: "adjust_range",
+          targetId: sliderTarget?.id,
+          value: adjRes.value,
+        };
       }
     }
 

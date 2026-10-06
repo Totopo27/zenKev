@@ -48,7 +48,12 @@ export class ZenVoiceEngineClient {
       try {
         this.#enginePath = Services.prefs.getStringPref("zen.voicenav.engine-path");
       } catch (_) {
-        this.#enginePath = PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
+        const envBin = Services.env?.get("ZEN_VOICE_ENGINE_BIN");
+        if (envBin) {
+          this.#enginePath = envBin;
+        } else {
+          this.#enginePath = PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
+        }
       }
     }
 
@@ -236,14 +241,27 @@ export class ZenVoiceEngineClient {
 
   /**
    * Despacha una petición de clasificación hacia el motor de Rust.
+   * Si el motor no está disponible o la preferencia mock está activa,
+   * se utiliza un clasificador léxico in-process (Zero-Dependency fallback).
    * @param {string} transcript - Texto transcrito por voz.
    * @param {Array} candidates - Nodos AOM recolectados por ZenVoiceNavChild.
    * @param {number} topK - Cantidad de candidatos a podar.
    */
   async classify(transcript, candidates, topK = 10) {
+    let forceMock = false;
+    try {
+      forceMock = Services.prefs.getBoolPref("zen.voicenav.mock-engine", false);
+    } catch (_) {}
+
+    if (forceMock) {
+      logDebug("[ZenVoiceEngineClient] zen.voicenav.mock-engine activado. Usando clasificador in-process.");
+      return this.#inProcessLexicalClassify(transcript, candidates, topK);
+    }
+
     const started = await this.ensureStarted();
     if (!started) {
-      return { error: "Motor de voz no disponible" };
+      logDebug("[ZenVoiceEngineClient] Subproceso de voz no disponible. Activando fallback léxico in-process.");
+      return this.#inProcessLexicalClassify(transcript, candidates, topK);
     }
 
     const payload = JSON.stringify({
@@ -261,6 +279,71 @@ export class ZenVoiceEngineClient {
         reject(err);
       });
     });
+  }
+
+  /**
+   * Clasificador léxico ligero ejecutado en el Chrome Process sin dependencias binarias.
+   * Permite a los maintainers de Zen Browser probar la suite completa de actores AOM
+   * y navegación por voz sin necesidad de compilar o distribuir el demonio de Rust.
+   */
+  #inProcessLexicalClassify(transcript, candidates, topK = 10) {
+    if (!transcript || !Array.isArray(candidates) || candidates.length === 0) {
+      return {
+        matched_id: null,
+        action: null,
+        confidence: 0,
+        latency_ms: 0.05,
+        tier: "tier1_in_process_fallback",
+      };
+    }
+
+    const tNorm = transcript.toLowerCase().trim();
+    const tWords = tNorm.split(/\s+/).filter(Boolean);
+
+    let bestCandidate = null;
+    let bestScore = 0;
+
+    for (const cand of candidates) {
+      const name = (cand.name || "").toLowerCase().trim();
+      const desc = (cand.description || "").toLowerCase().trim();
+      const targetText = `${name} ${desc}`.trim();
+
+      if (!targetText) continue;
+
+      let score = 0;
+
+      // Coincidencia exacta de nombre o descripción
+      if (name === tNorm) {
+        score = 1.0;
+      } else if (targetText.includes(tNorm) || tNorm.includes(name)) {
+        score = 0.85;
+      } else {
+        // Coincidencia por conjunto de tokens
+        let matchedWords = 0;
+        for (const w of tWords) {
+          if (w.length > 1 && targetText.includes(w)) {
+            matchedWords++;
+          }
+        }
+        if (matchedWords > 0) {
+          score = (matchedWords / tWords.length) * 0.75;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = cand;
+      }
+    }
+
+    const matched = bestScore >= 0.30 ? bestCandidate : null;
+    return {
+      matched_id: matched ? matched.id : null,
+      action: matched ? (matched.name || matched.role || "click") : null,
+      confidence: bestScore,
+      latency_ms: 0.1,
+      tier: "tier1_in_process_fallback",
+    };
   }
 
   /**

@@ -21,59 +21,123 @@ struct SemanticCluster {
 const SEMANTIC_CLUSTERS: &[SemanticCluster] = &[
     SemanticCluster {
         concept: "checkout_and_payment",
-        terms: &["pagar", "comprar", "pago", "compra", "pedido", "adquirir", "facturacion", "tarjeta", "checkout", "caja", "abono", "finalizar compra", "tramitar pedido", "pay", "order"],
+        terms: &[
+            "pagar", "comprar", "pago", "compra", "pedido", "adquirir", "facturacion", "tarjeta", "checkout", "caja", "abono", "finalizar compra", "tramitar pedido",
+            "pay", "order", "buy", "purchase", "checkout", "billing", "card", "pay now", "place order",
+            "pagar agora", "comprar agora", "finalizar compra", "carrinho"
+        ],
     },
     SemanticCluster {
         concept: "configuration_settings",
-        terms: &["ajustes", "preferencias", "opciones", "personalizar", "perfil", "cuenta", "configuracion", "configuración", "settings", "setup", "options", "preferences"],
+        terms: &[
+            "ajustes", "preferencias", "opciones", "personalizar", "perfil", "cuenta", "configuracion", "configuración",
+            "settings", "setup", "options", "preferences", "config", "profile", "account", "customize",
+            "configurações", "preferências", "opções", "ajustes"
+        ],
     },
     SemanticCluster {
         concept: "authentication_login",
-        terms: &["entrar", "ingresar", "login", "acceder", "autenticar", "conectar", "conectar cuenta", "iniciar sesión", "iniciar sesion", "sign in", "acceso"],
+        terms: &[
+            "entrar", "ingresar", "login", "acceder", "autenticar", "conectar", "conectar cuenta", "iniciar sesión", "iniciar sesion", "acceso",
+            "sign in", "log in", "signin", "login", "authenticate", "connect",
+            "entrar", "conectar", "iniciar sessão"
+        ],
     },
     SemanticCluster {
         concept: "authentication_logout",
-        terms: &["salir", "desconectar", "terminar sesion", "logout", "abandonar", "desloguear", "cerrar sesión", "cerrar sesion", "sign out"],
+        terms: &[
+            "salir", "desconectar", "terminar sesion", "logout", "abandonar", "desloguear", "cerrar sesión", "cerrar sesion",
+            "sign out", "log out", "signout", "logout", "disconnect", "exit",
+            "sair", "desconectar", "encerrar sessão"
+        ],
     },
     SemanticCluster {
         concept: "bookmarks_and_favorites",
-        terms: &["favoritos", "guardados", "links guardados", "guardar pagina", "marcadores", "bookmarks", "guardar en marcadores"],
+        terms: &[
+            "favoritos", "guardados", "links guardados", "guardar pagina", "marcadores",
+            "bookmarks", "favorites", "bookmark", "saved", "save page", "add bookmark",
+            "favoritos", "marcadores", "guardados"
+        ],
     },
     SemanticCluster {
         concept: "downloads_and_files",
-        terms: &["ficheros", "archivos", "bajar archivo", "descargas", "downloads", "instaladores", "descargar"],
+        terms: &[
+            "ficheros", "archivos", "bajar archivo", "descargas", "instaladores", "descargar",
+            "downloads", "download", "files", "get file", "saved files",
+            "downloads", "baixar", "arquivos", "descarregar"
+        ],
     },
     SemanticCluster {
         concept: "history_navigation",
-        terms: &["lo que visite", "paginas visitadas", "ayer", "sitios anteriores", "historial", "history"],
+        terms: &[
+            "lo que visite", "paginas visitadas", "ayer", "sitios anteriores", "historial",
+            "history", "recent", "visited", "browsing history",
+            "histórico", "páginas visitadas", "recente"
+        ],
     },
     SemanticCluster {
         concept: "home_start",
-        terms: &["portada", "principal", "volver al principio", "casa", "inicio", "home", "página principal"],
+        terms: &[
+            "portada", "principal", "volver al principio", "casa", "inicio", "página principal",
+            "home", "homepage", "start", "main", "frontpage",
+            "início", "página inicial", "principal"
+        ],
     },
     SemanticCluster {
         concept: "search_query",
-        terms: &["encontrar", "localizar", "consultar", "rastrear", "averiguar", "buscar", "search", "búsqueda", "lupa"],
+        terms: &[
+            "encontrar", "localizar", "consultar", "rastrear", "averiguar", "buscar", "búsqueda", "lupa",
+            "search", "find", "query", "lookup", "explore",
+            "buscar", "pesquisar", "pesquisa", "busca", "procurar"
+        ],
     },
     SemanticCluster {
         concept: "voice_panel",
-        terms: &["vumetro", "control de voz", "microfono", "panel", "widget", "ventana flotante", "panel de voz", "zenkev"],
+        terms: &[
+            "vumetro", "control de voz", "microfono", "panel", "widget", "ventana flotante", "panel de voz", "zenkev",
+            "voice panel", "microphone", "mic", "voice control", "hud",
+            "painel de voz", "microfone", "controle de voz"
+        ],
     },
     SemanticCluster {
         concept: "media_playback",
-        terms: &["reproducir", "pausar", "play", "pause", "parar", "reanudar", "silenciar", "mutear", "volumen", "video", "audio", "cancion", "musica", "podcast"],
+        terms: &[
+            "reproducir", "pausar", "play", "pause", "parar", "reanudar", "silenciar", "mutear", "volumen", "video", "audio", "cancion", "musica", "podcast",
+            "play", "pause", "stop", "resume", "mute", "unmute", "volume", "track", "music", "video", "audio",
+            "reproduzir", "pausar", "parar", "silenciar", "volume", "áudio", "música"
+        ],
     },
     SemanticCluster {
         concept: "forms_confirmation_submit",
-        terms: &["enviar", "guardar", "confirmar", "aceptar", "registrar", "registrarse", "suscribirse", "submit", "save", "confirm", "send", "continuar", "listo", "hecho"],
+        terms: &[
+            "enviar", "guardar", "confirmar", "aceptar", "registrar", "registrarse", "suscribirse", "continuar", "listo", "hecho",
+            "submit", "save", "confirm", "send", "accept", "register", "sign up", "continue", "done", "apply", "ok",
+            "enviar", "salvar", "guardar", "confirmar", "aceitar", "concluir", "pronto"
+        ],
+    },
+    SemanticCluster {
+        concept: "cancel_dismiss",
+        terms: &[
+            "cancelar", "descartar", "rechazar", "cerrar", "anular", "volver",
+            "cancel", "dismiss", "reject", "close", "abort", "discard", "back",
+            "cancelar", "fechar", "rejeitar", "voltar", "descartar"
+        ],
     },
     SemanticCluster {
         concept: "social_share",
-        terms: &["compartir", "difundir", "enviar a", "share", "tweet", "publicar", "postear", "copiar enlace"],
+        terms: &[
+            "compartir", "difundir", "enviar a", "share", "tweet", "publicar", "postear", "copiar enlace",
+            "share", "copy link", "repost", "forward",
+            "compartilhar", "copiar link", "publicar"
+        ],
     },
     SemanticCluster {
         concept: "navigation_tabs_windows",
-        terms: &["pestaña", "pestana", "pestañas", "pestanas", "solapa", "ventana", "tab", "tabs", "navegar"],
+        terms: &[
+            "pestaña", "pestana", "pestañas", "pestanas", "solapa", "ventana", "navegar",
+            "tab", "tabs", "window", "new tab", "close tab", "switch tab",
+            "aba", "abas", "guia", "guias", "janela", "nova aba"
+        ],
     },
 ];
 

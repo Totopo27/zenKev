@@ -17,7 +17,7 @@
       "esModuleURI": "resource:///actors/ZenVoiceNavChild.sys.mjs",
       "events": {}
     },
-    "allFrames": false,
+    "allFrames": true,
     "messageManagerGroups": ["browsers"],
     "remoteTypes": ["web", "file", "privilegedabout"],
     "safeForUntrustedWebProcess": true,

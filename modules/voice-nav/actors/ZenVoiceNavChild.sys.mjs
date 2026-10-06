@@ -134,6 +134,19 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       case "ZenVoiceNav:PressEnter":
         return this.#pressEnter(message.data?.targetId);
 
+      case "ZenVoiceNav:SelectOption":
+        return this.#selectOption(
+          message.data?.targetId,
+          message.data?.optionQuery ?? ""
+        );
+
+      case "ZenVoiceNav:AdjustRange":
+        return this.#adjustRange(
+          message.data?.targetId,
+          message.data?.direction ?? "set",
+          message.data?.amount ?? 0
+        );
+
       default:
         return { error: `Mensaje desconocido: ${message.name}` };
     }
@@ -339,6 +352,8 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       case Ci.nsIAccessibleRole.ROLE_CHECK_MENU_ITEM:
       case Ci.nsIAccessibleRole.ROLE_RADIO_MENU_ITEM:
       case Ci.nsIAccessibleRole.ROLE_SWITCH:
+      case Ci.nsIAccessibleRole.ROLE_LISTITEM:
+      case Ci.nsIAccessibleRole.ROLE_OPTION:
         return true;
       default:
         return false;
@@ -498,6 +513,17 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       el.focus();
       this.#highlightElement(el);
 
+      const tag = el.tagName?.toUpperCase();
+      const inputType = el.getAttribute?.("type")?.toLowerCase() || "";
+
+      // Manejo inteligente de Fechas en HTML5 (<input type="date"> o <input type="datetime-local">)
+      if (tag === "INPUT" && (inputType === "date" || inputType === "datetime-local" || inputType === "month")) {
+        const parsedDate = this.#parseSpanishDate(value);
+        if (parsedDate) {
+          value = parsedDate;
+        }
+      }
+
       if (el.isContentEditable) {
         if (append) {
           el.textContent = (el.textContent ? el.textContent + " " : "") + value;
@@ -646,6 +672,309 @@ export class ZenVoiceNavChild extends JSWindowActorChild {
       el.dispatchEvent(new this.contentWindow.KeyboardEvent("keypress", evOpts));
       el.dispatchEvent(new this.contentWindow.KeyboardEvent("keyup", evOpts));
       return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Parsea expresiones de fecha en lenguaje natural (ej. "15 de marzo de 2026", "hoy", "mañana", "2026-03-15")
+   * y devuelve el formato estándar ISO YYYY-MM-DD para <input type="date">.
+   */
+  #parseSpanishDate(text) {
+    if (!text || typeof text !== "string") return null;
+    const clean = text.trim().toLowerCase();
+
+    // Si ya viene en formato YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+      return clean;
+    }
+
+    const today = new Date();
+    if (clean === "hoy" || clean === "today" || clean === "hoje") {
+      return today.toISOString().split("T")[0];
+    }
+    if (clean === "mañana" || clean === "manana" || clean === "tomorrow" || clean === "amanhã" || clean === "amanha") {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow.toISOString().split("T")[0];
+    }
+    if (clean === "ayer" || clean === "yesterday" || clean === "ontem") {
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return yesterday.toISOString().split("T")[0];
+    }
+
+    const MONTHS = {
+      // Español
+      "enero": "01", "febrero": "02", "marzo": "03", "abril": "04",
+      "mayo": "05", "junio": "06", "julio": "07", "agosto": "08",
+      "septiembre": "09", "setiembre": "09", "octubre": "10",
+      "noviembre": "11", "diciembre": "12",
+      // Inglés
+      "january": "01", "jan": "01", "february": "02", "feb": "02",
+      "march": "03", "mar": "03", "april": "04", "apr": "04",
+      "may": "05", "june": "06", "jun": "06", "july": "07", "jul": "07",
+      "august": "08", "aug": "08", "september": "09", "sep": "09", "sept": "09",
+      "october": "10", "oct": "10", "november": "11", "nov": "11",
+      "december": "12", "dec": "12",
+      // Portugués
+      "janeiro": "01", "fevereiro": "02", "março": "03", "marco": "03",
+      "abril": "04", "maio": "05", "junho": "06", "julho": "07",
+      "setembro": "09", "outubro": "10", "novembro": "11", "dezembro": "12"
+    };
+
+    // Formato "15 de marzo de 2026", "15 de marzo" o inglés "15th march 2026" / "15 march"
+    const match = clean.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+(?:de\s+)?([a-zñáéíóúç]+)(?:\s+(?:del?\s+)?(\d{4}))?$/i);
+    if (match) {
+      const day = match[1].padStart(2, "0");
+      const monthStr = match[2].toLowerCase();
+      const year = match[3] || String(today.getFullYear());
+      const month = MONTHS[monthStr];
+      if (month) {
+        return `${year}-${month}-${day}`;
+      }
+    }
+
+    // Formato inglés "March 15, 2026" o "March 15th"
+    const enMatch = clean.match(/^([a-zñáéíóúç]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/i);
+    if (enMatch) {
+      const monthStr = enMatch[1].toLowerCase();
+      const day = enMatch[2].padStart(2, "0");
+      const year = enMatch[3] || String(today.getFullYear());
+      const month = MONTHS[monthStr];
+      if (month) {
+        return `${year}-${month}-${day}`;
+      }
+    }
+
+    // Formato "15/03/2026" o "15-03-2026"
+    const slashMatch = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (slashMatch) {
+      const day = slashMatch[1].padStart(2, "0");
+      const month = slashMatch[2].padStart(2, "0");
+      const year = slashMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    return null;
+  }
+
+  /**
+   * Selecciona una opción en un <select> nativo o simula la selección en un Combobox ARIA.
+   */
+  async #selectOption(targetId, optionQuery) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement) {
+      el = this.document.activeElement;
+    }
+    if (!el) {
+      el = this.document?.querySelector("select:not([disabled]), [role='combobox'], [role='listbox']");
+    }
+    if (!el) {
+      return { success: false, error: "No se encontró elemento select o combobox" };
+    }
+
+    try {
+      el.focus();
+      this.#highlightElement(el);
+
+      const cleanQuery = (optionQuery || "").toLowerCase().trim();
+
+      // Caso 1: <select> nativo de HTML
+      if (el.tagName?.toUpperCase() === "SELECT") {
+        let bestIndex = -1;
+        const options = Array.from(el.options || []);
+
+        // 1. Coincidencia exacta de texto o valor
+        bestIndex = options.findIndex(opt =>
+          opt.text.toLowerCase().trim() === cleanQuery ||
+          opt.value.toLowerCase().trim() === cleanQuery
+        );
+
+        // 2. Coincidencia parcial
+        if (bestIndex === -1 && cleanQuery) {
+          bestIndex = options.findIndex(opt =>
+            opt.text.toLowerCase().includes(cleanQuery) ||
+            opt.value.toLowerCase().includes(cleanQuery)
+          );
+        }
+
+        // 3. Si el query es un número (ej. "opción 2" o "2")
+        const numMatch = cleanQuery.match(/(?:opci[oó]n\s+)?(\d+)/i);
+        if (bestIndex === -1 && numMatch) {
+          const idx = parseInt(numMatch[1], 10) - 1;
+          if (idx >= 0 && idx < options.length) {
+            bestIndex = idx;
+          }
+        }
+
+        if (bestIndex !== -1) {
+          el.selectedIndex = bestIndex;
+          el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+          el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+          return {
+            success: true,
+            targetId,
+            selectedText: options[bestIndex].text,
+            selectedValue: options[bestIndex].value,
+            index: bestIndex,
+          };
+        }
+
+        return { success: false, error: `Opción "${optionQuery}" no encontrada en <select>` };
+      }
+
+      // Caso 2: Custom ARIA Combobox / Listbox
+      // Si está cerrado (aria-expanded="false"), lo abrimos
+      if (el.getAttribute("aria-expanded") === "false") {
+        el.click();
+        await new Promise(r => this.contentWindow.requestAnimationFrame(r));
+      }
+
+      // Buscar opciones asociadas mediante aria-owns, aria-controls o dentro del sub-árbol
+      const doc = this.document;
+      let optionList = [];
+      const controlsId = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+      if (controlsId) {
+        const popup = doc.getElementById(controlsId);
+        if (popup) {
+          optionList = Array.from(popup.querySelectorAll("[role='option'], li, div[data-value]"));
+        }
+      }
+      if (optionList.length === 0) {
+        optionList = Array.from(el.querySelectorAll("[role='option'], li, div[data-value]"));
+      }
+      if (optionList.length === 0) {
+        optionList = Array.from(doc.querySelectorAll("[role='listbox'] [role='option'], ul[role='listbox'] li"));
+      }
+
+      let bestOpt = null;
+      for (const opt of optionList) {
+        const text = (opt.textContent || opt.getAttribute("data-value") || opt.getAttribute("aria-label") || "").toLowerCase().trim();
+        if (text === cleanQuery || text.includes(cleanQuery)) {
+          bestOpt = opt;
+          break;
+        }
+      }
+
+      if (bestOpt) {
+        bestOpt.click();
+        this.#highlightElement(bestOpt);
+        return {
+          success: true,
+          targetId,
+          selectedText: bestOpt.textContent?.trim(),
+          customAria: true,
+        };
+      }
+
+      return { success: false, error: `Opción "${optionQuery}" no encontrada en combobox ARIA` };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  /**
+   * Ajusta un slider o input numérico (<input type="range">, <input type="number">, ROLE_SLIDER, ROLE_SPINBUTTON).
+   * @param {string|number} targetId
+   * @param {string} direction - "set" | "increment" | "decrement"
+   * @param {number} amount - valor numérico a asignar o variar
+   */
+  #adjustRange(targetId, direction = "set", amount = 0) {
+    let el = null;
+    if (targetId) {
+      const cached = this.#nodeCache.get(String(targetId));
+      el = cached?.DOMNode || cached;
+    }
+    if (!el && this.document?.activeElement) {
+      el = this.document.activeElement;
+    }
+    if (!el) {
+      el = this.document?.querySelector("input[type='range'], input[type='number'], [role='slider'], [role='spinbutton']");
+    }
+    if (!el) {
+      return { success: false, error: "No se encontró control de rango o slider" };
+    }
+
+    try {
+      el.focus();
+      this.#highlightElement(el);
+
+      const isRangeOrNumber = el.tagName?.toUpperCase() === "INPUT" &&
+        (el.type === "range" || el.type === "number");
+
+      if (isRangeOrNumber) {
+        const min = el.min !== "" ? parseFloat(el.min) : 0;
+        const max = el.max !== "" ? parseFloat(el.max) : 100;
+        const step = el.step !== "" ? parseFloat(el.step) : 1;
+        let current = el.value !== "" ? parseFloat(el.value) : min;
+
+        let targetVal = current;
+        if (direction === "set") {
+          targetVal = amount;
+        } else if (direction === "increment") {
+          targetVal = current + (amount || step);
+        } else if (direction === "decrement") {
+          targetVal = current - (amount || step);
+        }
+
+        // Clamp
+        targetVal = Math.max(min, Math.min(max, targetVal));
+
+        const proto = Object.getPrototypeOf(el);
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(el, String(targetVal));
+        } else {
+          el.value = String(targetVal);
+        }
+
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+
+        return {
+          success: true,
+          targetId,
+          value: targetVal,
+          min,
+          max,
+        };
+      }
+
+      // Si es un role="slider" ARIA sintético
+      if (el.getAttribute("role") === "slider") {
+        const valNow = parseFloat(el.getAttribute("aria-valuenow") || "0");
+        const valMin = parseFloat(el.getAttribute("aria-valuemin") || "0");
+        const valMax = parseFloat(el.getAttribute("aria-valuemax") || "100");
+
+        let targetVal = valNow;
+        if (direction === "set") {
+          targetVal = amount;
+        } else if (direction === "increment") {
+          targetVal = valNow + (amount || 1);
+        } else if (direction === "decrement") {
+          targetVal = valNow - (amount || 1);
+        }
+        targetVal = Math.max(valMin, Math.min(valMax, targetVal));
+
+        el.setAttribute("aria-valuenow", String(targetVal));
+        el.dispatchEvent(new this.contentWindow.Event("input", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new this.contentWindow.Event("change", { bubbles: true, cancelable: true }));
+
+        return {
+          success: true,
+          targetId,
+          value: targetVal,
+          ariaSlider: true,
+        };
+      }
+
+      return { success: false, error: "Elemento no es un slider ni input numérico compatible" };
     } catch (e) {
       return { success: false, error: e.message };
     }

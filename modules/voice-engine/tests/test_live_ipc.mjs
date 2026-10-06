@@ -1,5 +1,9 @@
 import { spawn } from "child_process";
 import readline from "readline";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Test de integración End-to-End simulando la llamada de ZenVoiceEngineClient
@@ -8,7 +12,6 @@ import readline from "readline";
 async function testLiveEngineIPC() {
   console.log("=== [TEST E2E] Conexión en vivo con zen-voice-engine.exe ===");
 
-  const path = require("path");
   const enginePath = process.env.ZEN_VOICE_ENGINE_BIN || path.resolve(__dirname, "../target/release/zen-voice-engine.exe");
 
   const engine = spawn(enginePath, [], {
