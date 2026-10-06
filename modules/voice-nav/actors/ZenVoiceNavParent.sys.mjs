@@ -201,6 +201,15 @@ export function playEarcon(type = "success", topWin = null) {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
       osc.start(now);
       osc.stop(now + 0.17);
+    } else if (type === "listening") {
+      // Tono suave ascendente de inicio de escucha: 400Hz -> 600Hz (90ms)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc.start(now);
+      osc.stop(now + 0.09);
     } else if (type === "mute") {
       // Tono suave de apagado: 400Hz -> 280Hz (110ms)
       osc.type = "sine";
@@ -222,6 +231,53 @@ export function playEarcon(type = "success", topWin = null) {
     }
   } catch (_) {}
 }
+
+/**
+ * Anuncia un mensaje accesible para lectores de pantalla (NVDA, JAWS, Orca)
+ * utilizando una Live Region nativa ARIA en el Chrome Window.
+ * @param {string} message - Texto descriptivo a anunciar.
+ * @param {"polite" | "assertive"} priority - Prioridad de habla.
+ * @param {ChromeWindow} topWin
+ */
+export function announceAccessibility(message, priority = "polite", topWin = null) {
+  try {
+    const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
+    if (!win || !win.document) return;
+
+    const doc = win.document;
+    let liveRegion = doc.getElementById("zenkev-a11y-announcer");
+    if (!liveRegion) {
+      liveRegion = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+      liveRegion.id = "zenkev-a11y-announcer";
+      liveRegion.setAttribute("aria-live", priority);
+      liveRegion.setAttribute("aria-atomic", "true");
+      liveRegion.style.cssText = `
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+      `;
+      const root = doc.getElementById("browser") || doc.documentElement;
+      root.appendChild(liveRegion);
+    } else {
+      liveRegion.setAttribute("aria-live", priority);
+    }
+
+    // Vaciar y asignar en frame siguiente para garantizar que los screen readers capturen la mutación
+    liveRegion.textContent = "";
+    win.requestAnimationFrame(() => {
+      liveRegion.textContent = message;
+    });
+  } catch (err) {
+    logDebug(`Error al anunciar a lector de pantalla: ${err}`);
+  }
+}
+
+Services.zenAnnounceA11y = announceAccessibility;
 
 // Exponer en Services para llamadas globales
 Services.zenPlayVoiceEarcon = playEarcon;
@@ -413,6 +469,12 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   // Feedback auditivo sutil (Earcon)
   playEarcon(success ? "success" : "error", win);
 
+  // Feedback accesible para lectores de pantalla (NVDA, JAWS)
+  const a11yText = transcript
+    ? `${success ? "Ejecutado" : "No encontrado"}: ${transcript}. ${label || ""}`
+    : label;
+  announceAccessibility(a11yText, success ? "polite" : "assertive", win);
+
   // Cancelar animación previa si existe
   if (win._zenkevChromeHudAnim) {
     try { win._zenkevChromeHudAnim.cancel(); } catch (_) {}
@@ -482,8 +544,10 @@ export function updateVoiceNavButtonState(state) {
 
   if (state === "muted" && prevState !== "muted") {
     playEarcon("mute");
+    announceAccessibility("Navegación por voz silenciada", "assertive");
   } else if (state === "listening" && prevState === "muted") {
     playEarcon("unmute");
+    announceAccessibility("Navegación por voz activa", "assertive");
   }
 
   const iconUri = getVoiceNavButtonIcon(state);
@@ -1728,6 +1792,27 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "open_preferences" };
   }
 
+  if (/^(?:cerrar|quitar)\s+(?:la\s+)?(?:configuraci[oó]n|ajustes|preferencias)$|^close\s+settings$/i.test(text)) {
+    logDebug("Comando global detectado: Cerrar configuración");
+    const tabs = getOpenTabs();
+    for (const t of tabs) {
+      const uri = t.linkedBrowser?.currentURI?.spec || "";
+      if (uri.startsWith("about:preferences")) {
+        if (gBrowser) gBrowser.removeTab(t);
+        notifyHUD(true, "Configuración cerrada");
+        return { handled: true, action: "close_preferences" };
+      }
+    }
+    // Si no encontró pestaña explícita pero la actual es about:preferences, cerrarla
+    if (gBrowser?.selectedTab?.linkedBrowser?.currentURI?.spec?.startsWith("about:preferences")) {
+      gBrowser.removeTab(gBrowser.selectedTab);
+      notifyHUD(true, "Configuración cerrada");
+      return { handled: true, action: "close_preferences" };
+    }
+    notifyHUD(false, "Configuración no encontrada");
+    return { handled: true, action: "close_preferences_not_found" };
+  }
+
   // 6.5. Control de Estado de Voz (Silenciar / Activar micrófono)
   if (/^(?:silenciar|desactivar|pausar)\s+voz$/i.test(text)) {
     logDebug("Comando global detectado: Silenciar voz");
@@ -2473,10 +2558,15 @@ export function initZenVoiceNav(topWin) {
       if (!actor) return;
       if (topWin._zenVoiceNavOverlayActive) {
         topWin._zenVoiceNavOverlayActive = false;
+        playEarcon("mute", topWin);
+        announceAccessibility("Marcas numéricas desactivadas", "polite", topWin);
         await actor.hideVisualOverlay();
       } else {
         topWin._zenVoiceNavOverlayActive = true;
+        playEarcon("listening", topWin);
         const r = await actor.getCandidates(true);
+        const count = r.candidates?.length || 0;
+        announceAccessibility(`Marcas visuales activadas. ${count} elementos interactivos en pantalla`, "polite", topWin);
         await actor.showVisualOverlay(r.candidates || []);
       }
     }
@@ -2508,6 +2598,8 @@ export function initZenVoiceNav(topWin) {
   }, { capture: true });
 
   console.log("[ZenKev] Inicializado con éxito. Alternar capa visual con F2, Ctrl+Shift+Espacio o Alt+Shift+V.");
+  playEarcon("unmute", topWin);
+  announceAccessibility("Zen Voice Navigator activo. Presiona F2 para alternar marcas visuales.", "polite", topWin);
   getVoiceEngineClient();
 }
 

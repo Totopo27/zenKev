@@ -27,10 +27,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 SAMPLE_RATE = 16000
-CHUNK_DURATION = 0.5  # segundos por chunk
-THRESHOLD_ENERGY = 0.007  # Sensibilidad óptima calibrada para micrófono físico
-SILENCE_CHUNKS_LIMIT = 2  # 1.0 segundo de silencio consecutivo para cortar frase (2 chunks de 0.5s)
-MAX_CHUNKS_LIMIT = 14     # 7.0 segundos límite máximo de captura continua
+CHUNK_DURATION = 0.4  # 400ms por chunk para corte más ágil
+THRESHOLD_ENERGY = 0.012  # Calibrado para filtrar respiración y ruido ambiental bajo
+SILENCE_CHUNKS_LIMIT = 3  # 1.2s de silencio para permitir pausas naturales al hablar
+MAX_CHUNKS_LIMIT = 18     # 7.2s límite máximo de captura continua
 
 # Configuración de privacidad y modo offline STT
 OFFLINE_STT_ENABLED = os.environ.get("ZEN_VOICE_OFFLINE_STT", "").lower() in ("1", "true", "yes", "on")
