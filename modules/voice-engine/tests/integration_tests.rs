@@ -113,10 +113,169 @@ fn test_latency_stress_benchmark_100_candidates() {
     println!("\n[BENCHMARK] Tiempo para 100 candidatos: {:.3} ms", elapsed_ms);
 
     assert_eq!(decision.matched_id, Some("42".to_string()));
-    // Verificación estricta del presupuesto: debe resolver en menos de 5 ms en CPU
+    // Verificación de presupuesto con tolerancia según perfil de compilación
+    let max_budget_ms = if cfg!(debug_assertions) { 15.0 } else { 5.0 };
     assert!(
-        elapsed_ms < 5.0,
-        "La latencia superó el presupuesto permitido de 5 ms: {:.3} ms",
+        elapsed_ms < max_budget_ms,
+        "La latencia superó el presupuesto permitido de {} ms: {:.3} ms",
+        max_budget_ms,
         elapsed_ms
     );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn test_reactive_named_pipe_ipc_submillisecond() {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::windows::named_pipe::ClientOptions;
+    use tokio::sync::mpsc;
+    use zen_voice_engine::ipc;
+
+    let pipe_name = format!(r"\\.\pipe\zen_integ_test_{}", std::process::id());
+    let (tx, mut rx) = mpsc::channel(16);
+
+    let pipe_server = pipe_name.clone();
+    tokio::spawn(async move {
+        let _ = ipc::run_named_pipe_server(pipe_server, move |t| {
+            let _ = tx.try_send(t.to_string());
+        }).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Conexión cliente al Named Pipe
+    let mut client = ClientOptions::new().open(&pipe_name).expect("Conexión al pipe");
+
+    let phrases = vec!["inicio", "guardar cambios", "configuracion", "cancelar"];
+    for phrase in &phrases {
+        let t0 = Instant::now();
+        client.write_all(format!("{}\n", phrase).as_bytes()).await.expect("Escribir comando");
+        client.flush().await.expect("Flush comando");
+
+        let rec = tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv())
+            .await
+            .expect("Timeout esperando evento reactivo")
+            .expect("Canal cerrado prematuramente");
+
+        let dt = t0.elapsed();
+        println!("[INTEG NAMED PIPE] '{}' recibido reactivamente en: {:?}", phrase, dt);
+        assert_eq!(&rec, phrase);
+        assert!(dt.as_millis() < 15, "Latencia reactiva debe ser < 15ms sin sleep continuo");
+    }
+}
+
+#[test]
+fn test_vlm_visual_inspection_pipeline() {
+    use zen_voice_engine::vlm_engine::{VisionLanguageEngine, VisualInspectionRequest};
+
+    let vlm = VisionLanguageEngine::new(0.70);
+
+    // 1. Petición válida de inspección visual de botón mudo
+    let req = VisualInspectionRequest {
+        request_type: Some("inspect_visual".to_string()),
+        target_id: "mute-btn-1".to_string(),
+        transcript: "abrir configuracion".to_string(),
+        image_data_base64: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".to_string(),
+        width: 128,
+        height: 128,
+    };
+
+    let start = Instant::now();
+    let res = vlm.inspect_icon(&req);
+    let elapsed = start.elapsed();
+    let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
+
+    println!("\n[VLM TEST] Tiempo de inspección visual CPU: {:.3} ms", elapsed_ms);
+
+    assert_eq!(res.target_id, "mute-btn-1");
+    assert_eq!(res.predicted_icon_role, "boton_configuracion");
+    assert!(res.confidence >= 0.70);
+    assert!(res.matches_transcript);
+    assert_eq!(res.suggested_action, "click");
+    assert!(elapsed_ms < 10.0, "La inferencia VLM debe ejecutarse en < 10ms en CPU: {:.3}ms", elapsed_ms);
+
+    // 2. Invariante de seguridad: Dimensiones inválidas (> 256 px) deben ser rechazadas
+    let oversized_req = VisualInspectionRequest {
+        request_type: Some("inspect_visual".to_string()),
+        target_id: "oversized-btn".to_string(),
+        transcript: "configuracion".to_string(),
+        image_data_base64: "dummy".to_string(),
+        width: 512,
+        height: 512,
+    };
+    let oversized_res = vlm.inspect_icon(&oversized_req);
+    assert_eq!(oversized_res.confidence, 0.0);
+    assert!(!oversized_res.matches_transcript);
+    assert_eq!(oversized_res.predicted_icon_role, "invalid_dimensions");
+
+    // 3. Descarte por discrepancia visual
+    let mismatch_req = VisualInspectionRequest {
+        request_type: Some("inspect_visual".to_string()),
+        target_id: "mismatch-btn".to_string(),
+        transcript: "descartar elemento no_match".to_string(),
+        image_data_base64: "dummy".to_string(),
+        width: 128,
+        height: 128,
+    };
+    let mismatch_res = vlm.inspect_icon(&mismatch_req);
+    assert!(!mismatch_res.matches_transcript);
+    assert!(mismatch_res.confidence < 0.70);
+}
+
+#[test]
+fn test_engine_request_polymorphic_deserialization() {
+    use zen_voice_engine::protocol::EngineRequest;
+
+    // Caso A: ClassifyRequest tradicional sin campo "type"
+    let json_classify = r#"{
+        "transcript": "abrir configuracion",
+        "candidates": [],
+        "top_k": 5
+    }"#;
+    let req: Result<EngineRequest, _> = serde_json::from_str(json_classify);
+    assert!(req.is_ok());
+    match req.unwrap() {
+        EngineRequest::Classify(c) => {
+            assert_eq!(c.transcript, "abrir configuracion");
+            assert_eq!(c.top_k, 5);
+        }
+        _ => panic!("Esperaba EngineRequest::Classify"),
+    }
+
+    // Caso B: ClassifyRequest con campo "type"
+    let json_classify_typed = r#"{
+        "type": "classify",
+        "transcript": "cerrar ventana",
+        "candidates": [],
+        "top_k": 3
+    }"#;
+    let req_typed: Result<EngineRequest, _> = serde_json::from_str(json_classify_typed);
+    assert!(req_typed.is_ok());
+    match req_typed.unwrap() {
+        EngineRequest::Classify(c) => {
+            assert_eq!(c.transcript, "cerrar ventana");
+        }
+        _ => panic!("Esperaba EngineRequest::Classify"),
+    }
+
+    // Caso C: VisualInspectionRequest con campo "type": "inspect_visual"
+    let json_vlm = r#"{
+        "type": "inspect_visual",
+        "target_id": "42",
+        "transcript": "buscar",
+        "image_data_base64": "data:image/png;base64,abc",
+        "width": 128,
+        "height": 128
+    }"#;
+    let req_vlm: Result<EngineRequest, _> = serde_json::from_str(json_vlm);
+    assert!(req_vlm.is_ok());
+    match req_vlm.unwrap() {
+        EngineRequest::InspectVisual(v) => {
+            assert_eq!(v.target_id, "42");
+            assert_eq!(v.transcript, "buscar");
+            assert_eq!(v.width, 128);
+            assert_eq!(v.height, 128);
+        }
+        _ => panic!("Esperaba EngineRequest::InspectVisual"),
+    }
 }

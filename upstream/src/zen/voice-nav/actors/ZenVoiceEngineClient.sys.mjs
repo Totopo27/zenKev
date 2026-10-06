@@ -271,145 +271,14 @@ export class ZenVoiceEngineClient {
     }) + "\n";
 
     return new Promise((resolve, reject) => {
-      let timeoutId = null;
-
-      const requestEntry = {
-        resolve: (val) => {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-          }
-          resolve(val);
-        },
-        reject: (err) => {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-          }
-          reject(err);
-        },
-      };
-
-      timeoutId = setTimeout(() => {
-        timeoutId = null;
-        const idx = this.#pendingRequests.indexOf(requestEntry);
-        if (idx !== -1) {
-          this.#pendingRequests.splice(idx, 1);
-        }
-        logDebug("[ZenVoiceEngineClient] Timeout de respuesta del motor Rust (1000ms). Usando respaldo in-process.");
-        resolve(this.#inProcessLexicalClassify(transcript, candidates, topK));
-      }, 1000);
-
-      this.#pendingRequests.push(requestEntry);
-
+      this.#pendingRequests.push({ resolve, reject });
       this.#process.stdin.write(payload).catch((err) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
         // Remover de la cola si falló la escritura
-        const idx = this.#pendingRequests.indexOf(requestEntry);
+        const idx = this.#pendingRequests.findIndex((r) => r.resolve === resolve);
         if (idx !== -1) this.#pendingRequests.splice(idx, 1);
         reject(err);
       });
     });
-  }
-
-  /**
-   * Inspección visual multimodal de botón mudo / icono (Sistema 2).
-   * @param {string|number} targetId - ID del nodo accesible.
-   * @param {string} transcript - Texto transcrito por voz.
-   * @param {object} crop - Recorte { success, dataUrl, width, height }.
-   * @returns {Promise<object>} VisualInspectionResult
-   */
-  async inspectVisual(targetId, transcript, crop = {}) {
-    let forceMock = false;
-    try {
-      forceMock = Services.prefs.getBoolPref("zen.voicenav.mock-engine", false);
-    } catch (_) {}
-
-    if (forceMock) {
-      logDebug("[ZenVoiceEngineClient] zen.voicenav.mock-engine activado. Usando VLM fallback in-process.");
-      return this.#inProcessVisualFallback(targetId, transcript, crop);
-    }
-
-    const started = await this.ensureStarted();
-    if (!started) {
-      logDebug("[ZenVoiceEngineClient] Subproceso de voz no disponible. Activando fallback VLM in-process.");
-      return this.#inProcessVisualFallback(targetId, transcript, crop);
-    }
-
-    const payload = JSON.stringify({
-      type: "inspect_visual",
-      target_id: String(targetId),
-      transcript,
-      image_data_base64: crop?.dataUrl || "",
-      width: crop?.width || 128,
-      height: crop?.height || 128,
-    }) + "\n";
-
-    return new Promise((resolve, reject) => {
-      let timeoutId = null;
-
-      const requestEntry = {
-        resolve: (val) => {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-          }
-          resolve(val);
-        },
-        reject: (err) => {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-          }
-          reject(err);
-        },
-      };
-
-      timeoutId = setTimeout(() => {
-        timeoutId = null;
-        const idx = this.#pendingRequests.indexOf(requestEntry);
-        if (idx !== -1) {
-          this.#pendingRequests.splice(idx, 1);
-        }
-        logDebug("[ZenVoiceEngineClient] Timeout de respuesta VLM del motor Rust (1000ms). Usando respaldo in-process.");
-        resolve(this.#inProcessVisualFallback(targetId, transcript, crop));
-      }, 1000);
-
-      this.#pendingRequests.push(requestEntry);
-
-      this.#process.stdin.write(payload).catch((err) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        const idx = this.#pendingRequests.indexOf(requestEntry);
-        if (idx !== -1) this.#pendingRequests.splice(idx, 1);
-        reject(err);
-      });
-    });
-  }
-
-  /**
-   * Fallback visual in-process determinista cuando el motor de Rust no está activo o está en modo mock.
-   * @param {string|number} targetId - ID del nodo accesible.
-   * @param {string} transcript - Texto transcrito por voz.
-   * @param {object} crop - Recorte del nodo.
-   * @returns {object} VisualInspectionResult
-   */
-  #inProcessVisualFallback(targetId, transcript, crop = {}) {
-    const tNorm = (transcript || "").toLowerCase().trim();
-    const isMismatch = tNorm.includes("no_match") || tNorm.includes("descartar") || tNorm.includes("no coincide");
-
-    return {
-      target_id: String(targetId),
-      predicted_icon_role: isMismatch ? "desconocido" : "boton_configuracion",
-      confidence: isMismatch ? 0.20 : 0.85,
-      matches_transcript: !isMismatch,
-      suggested_action: isMismatch ? "none" : "click",
-    };
   }
 
   /**

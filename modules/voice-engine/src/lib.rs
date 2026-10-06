@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 pub mod audio_events;
+pub mod ipc;
 pub mod lexical_ranker;
 pub mod nli_engine;
 pub mod protocol;

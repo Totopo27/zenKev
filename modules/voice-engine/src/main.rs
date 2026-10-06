@@ -4,9 +4,10 @@
 
 use mimalloc::MiMalloc;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
 use std::time::Instant;
-use zen_voice_engine::protocol::{ClassifyRequest, ClassifyResult};
+use zen_voice_engine::ipc;
+use zen_voice_engine::protocol::{ClassifyResult, EngineRequest};
+use zen_voice_engine::vlm_engine::VisionLanguageEngine;
 use zen_voice_engine::{lexical_ranker, nli_engine};
 
 // Activación del asignador mimalloc (Catálogo §14.1)
@@ -22,83 +23,28 @@ fn log_debug(msg: &str) {
     }
 }
 
-/// Resuelve dinámicamente la ruta del archivo IPC sin dependencias de rutas fijas:
-/// 1. Variable de entorno ZEN_VOICE_IPC_PATH.
-/// 2. Argumento de línea de comando `--ipc <path>` o `--ipc-path <path>`.
-/// 3. Archivo voice_command.ipc en el directorio actual.
-/// 4. Fallback al directorio temporal del sistema operativo (std::env::temp_dir()).
-fn resolve_ipc_path() -> PathBuf {
-    if let Ok(path) = std::env::var("ZEN_VOICE_IPC_PATH") {
-        return PathBuf::from(path);
-    }
-
-    let args: Vec<String> = std::env::args().collect();
-    for i in 0..args.len() {
-        if (args[i] == "--ipc" || args[i] == "--ipc-path") && i + 1 < args.len() {
-            return PathBuf::from(&args[i + 1]);
-        }
-    }
-
-    let local_ipc = PathBuf::from("voice_command.ipc");
-    if local_ipc.exists() {
-        return local_ipc;
-    }
-
-    std::env::temp_dir().join("zen_voice_command.ipc")
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let classifier = nli_engine::IntentClassifier::new(0.40);
+    let vlm_engine = VisionLanguageEngine::new(0.70);
 
-    let ipc_file_path = resolve_ipc_path();
-    log_debug(&format!("Starting zen-voice-engine main with IPC path: {:?}", ipc_file_path));
+    #[cfg(windows)]
+    log_debug(&format!("Iniciando IPC reactivo por Named Pipe: {}", ipc::resolve_pipe_name()));
+    #[cfg(unix)]
+    log_debug(&format!("Iniciando IPC reactivo por Unix Socket: {:?}", ipc::resolve_socket_path()));
 
-    // Truncar o inicializar archivo IPC para descartar comandos residuales de sesiones previas
-    let _ = std::fs::write(&ipc_file_path, "");
+    if let Some(ref ipc_path) = ipc::resolve_ipc_file_path() {
+        log_debug(&format!("Fallback IPC activo en archivo: {:?}", ipc_path));
+    }
 
-    // Canal en segundo plano para recibir voz transcrita en vivo (IPC ultrarrápido sin dependencias de red)
-    let ipc_path_clone = ipc_file_path.clone();
-    std::thread::spawn(move || {
-        use std::io::{BufRead, BufReader, Seek, SeekFrom};
-        let mut last_pos: u64 = std::fs::metadata(&ipc_path_clone)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        log_debug(&format!("IPC listener activo en {:?}", ipc_path_clone));
-
-        loop {
-            if let Ok(metadata) = std::fs::metadata(&ipc_path_clone) {
-                let len = metadata.len();
-                if len > last_pos {
-                    if let Ok(mut file) = std::fs::File::open(&ipc_path_clone) {
-                        if file.seek(SeekFrom::Start(last_pos)).is_ok() {
-                            let reader = BufReader::new(file);
-                            for l in reader.lines().map_while(Result::ok) {
-                                let trimmed = l.trim();
-                                if !trimmed.is_empty() {
-                                    log_debug(&format!("Voz recibida por IPC: {}", trimmed));
-                                    let json = serde_json::json!({
-                                        "type": "transcription_ready",
-                                        "transcript": trimmed
-                                    });
-                                    let mut out = io::stdout().lock();
-                                    let _ = writeln!(out, "{}", json);
-                                    let _ = out.flush();
-                                }
-                            }
-                        }
-                    }
-                    last_pos = len;
-                } else if len < last_pos {
-                    last_pos = 0;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(15));
-        }
+    // Inicialización del canal reactivo (Named Pipe en Windows / Sockets en Unix + fallback opcional)
+    ipc::start_reactive_ipc(|transcript| {
+        log_debug(&format!("Voz recibida por IPC reactivo: {}", transcript));
+        ipc::emit_transcription_ready(transcript);
     });
 
     let stdin = io::stdin();
-    let mut stdout = io::stdout();
+    let stdout = io::stdout();
 
     // Procesamiento línea a línea (NDJSON / Stdio IPC)
     for line in stdin.lock().lines() {
@@ -113,12 +59,34 @@ async fn main() -> anyhow::Result<()> {
 
         let start_time = Instant::now();
 
-        // 1. Deserialización del request
-        let request: Result<ClassifyRequest, _> = serde_json::from_str(&line);
-        let response = match request {
-            Ok(req) => {
+        // 1. Deserialización del request polimórfico (Classify o InspectVisual)
+        let request: Result<EngineRequest, _> = serde_json::from_str(&line);
+        match request {
+            Ok(EngineRequest::InspectVisual(req)) => {
+                log_debug(&format!(
+                    "STDIN InspectVisual: target_id='{}', transcript='{}', dim={}x{}",
+                    req.target_id, req.transcript, req.width, req.height
+                ));
+
+                let result = vlm_engine.inspect_icon(&req);
+                let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                log_debug(&format!(
+                    "STDIN VisualInspectionResult: target_id={}, role={}, conf={:.2}, matches={}, latency={:.2}ms",
+                    result.target_id, result.predicted_icon_role, result.confidence, result.matches_transcript, elapsed_ms
+                ));
+
+                let mut json_out = serde_json::to_string(&result)?;
+                json_out.push('\n');
+                let mut out = stdout.lock();
+                out.write_all(json_out.as_bytes())?;
+                out.flush()?;
+            }
+            Ok(EngineRequest::Classify(req)) => {
                 let initial_count = req.candidates.len();
-                log_debug(&format!("STDIN ClassifyRequest: transcript='{}', candidates={}", req.transcript, initial_count));
+                log_debug(&format!(
+                    "STDIN ClassifyRequest: transcript='{}', candidates={}",
+                    req.transcript, initial_count
+                ));
 
                 // 2. Pre-ranking y poda léxica (<1ms)
                 let pruned = lexical_ranker::rank_and_prune(
@@ -132,9 +100,12 @@ async fn main() -> anyhow::Result<()> {
                 let decision = classifier.evaluate(&req.transcript, &pruned);
 
                 let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-                log_debug(&format!("STDIN ClassifyResult: matched_id={:?}, action='{}', confidence={:.2}, latency={:.2}ms", decision.matched_id, decision.action, decision.confidence, elapsed_ms));
+                log_debug(&format!(
+                    "STDIN ClassifyResult: matched_id={:?}, action='{}', confidence={:.2}, latency={:.2}ms",
+                    decision.matched_id, decision.action, decision.confidence, elapsed_ms
+                ));
 
-                ClassifyResult {
+                let response = ClassifyResult {
                     matched_id: decision.matched_id,
                     action: decision.action,
                     confidence: decision.confidence,
@@ -143,25 +114,33 @@ async fn main() -> anyhow::Result<()> {
                     candidate_count_in: initial_count,
                     candidate_count_pruned: pruned_count,
                     tier: decision.tier,
-                }
-            }
-            Err(e) => ClassifyResult {
-                matched_id: None,
-                action: format!("error: {}", e),
-                confidence: 0.0,
-                fallback_to_vlm: false,
-                latency_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                candidate_count_in: 0,
-                candidate_count_pruned: 0,
-                tier: "none".to_string(),
-            },
-        };
+                };
 
-        // 4. Emisión atómica de la respuesta JSON por stdout
-        let mut json_out = serde_json::to_string(&response)?;
-        json_out.push('\n');
-        stdout.write_all(json_out.as_bytes())?;
-        stdout.flush()?;
+                let mut json_out = serde_json::to_string(&response)?;
+                json_out.push('\n');
+                let mut out = stdout.lock();
+                out.write_all(json_out.as_bytes())?;
+                out.flush()?;
+            }
+            Err(e) => {
+                let response = ClassifyResult {
+                    matched_id: None,
+                    action: format!("error: {}", e),
+                    confidence: 0.0,
+                    fallback_to_vlm: false,
+                    latency_ms: start_time.elapsed().as_secs_f64() * 1000.0,
+                    candidate_count_in: 0,
+                    candidate_count_pruned: 0,
+                    tier: "none".to_string(),
+                };
+
+                let mut json_out = serde_json::to_string(&response)?;
+                json_out.push('\n');
+                let mut out = stdout.lock();
+                out.write_all(json_out.as_bytes())?;
+                out.flush()?;
+            }
+        }
     }
 
     // Al cerrarse el pipe stdin (cuando Zen Browser cierra el cliente), terminar limpiamente

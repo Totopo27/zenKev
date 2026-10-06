@@ -87,11 +87,61 @@ async function testLiveEngineIPC() {
   console.log("- Latencia interna en Rust:", parsed.latency_ms.toFixed(3), "ms");
 
   if (parsed.matched_id === "102" && parsed.action === "click") {
-    console.log("\n✅ [PASS] El motor identificó el botón correcto y la acción correspondiente.");
+    console.log("\n✅ [PASS 1/2] El motor identificó el botón correcto y la acción correspondiente (Classify).");
   } else {
-    console.error("\n❌ [FAIL] La decisión no coincide con la esperada.");
+    console.error("\n❌ [FAIL 1/2] La decisión de classify no coincide con la esperada.");
+    engine.kill();
+    process.exit(1);
   }
 
+  // === Fase 2: Inspección Visual Multimodal VLM (Sistema 2) ===
+  console.log("\n=== [TEST E2E 2/2] Petición NDJSON inspect_visual (VLM) ===");
+  const visualRequest = {
+    type: "inspect_visual",
+    target_id: "205",
+    transcript: "abrir configuracion",
+    image_data_base64: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    width: 128,
+    height: 128,
+  };
+
+  const startVisualTime = process.hrtime.bigint();
+  const visualResponsePromise = new Promise((resolve) => {
+    rl.once("line", (line) => {
+      const endVisualTime = process.hrtime.bigint();
+      const visualRoundtripMs = Number(endVisualTime - startVisualTime) / 1_000_000;
+      resolve({ line, visualRoundtripMs });
+    });
+  });
+
+  engine.stdin.write(JSON.stringify(visualRequest) + "\n");
+  const { line: visualLine, visualRoundtripMs } = await visualResponsePromise;
+  console.log(`[RESPUESTA VLM RECIBIDA en ${visualRoundtripMs.toFixed(3)} ms]:\n`, visualLine);
+
+  const parsedVisual = JSON.parse(visualLine);
+  console.log("\nResultado de Inspección Visual VLM:");
+  console.log("- Target ID:", parsedVisual.target_id);
+  console.log("- Rol visual predicho:", parsedVisual.predicted_icon_role);
+  console.log("- Confianza:", parsedVisual.confidence);
+  console.log("- Coincide con transcripción:", parsedVisual.matches_transcript);
+  console.log("- Acción sugerida:", parsedVisual.suggested_action);
+  console.log("- Latencia roundtrip IPC:", visualRoundtripMs.toFixed(3), "ms");
+
+  const vlmValid = parsedVisual.target_id === "205" &&
+                   parsedVisual.predicted_icon_role === "boton_configuracion" &&
+                   parsedVisual.matches_transcript === true &&
+                   parsedVisual.confidence >= 0.70 &&
+                   parsedVisual.suggested_action === "click";
+
+  if (vlmValid && visualRoundtripMs < 50) {
+    console.log("\n✅ [PASS 2/2] Inferencia VLM ejecutada con éxito y validada (<10ms CPU).");
+  } else {
+    console.error("\n❌ [FAIL 2/2] Respuesta VLM no válida o latencia excesiva.");
+    engine.kill();
+    process.exit(1);
+  }
+
+  console.log("\n🎉 [ALL PASS] Pipeline VLM y Classify integrados de extremo a extremo.");
   engine.kill();
   process.exit(0);
 }

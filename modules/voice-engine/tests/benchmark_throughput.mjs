@@ -1,10 +1,13 @@
 import { spawn } from "child_process";
 import readline from "readline";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function benchmarkPipelinedThroughput() {
   console.log("=== [BENCHMARK] Throughput en pipeline continuo sobre zen-voice-engine ===");
 
-  const path = require("path");
   const enginePath = process.env.ZEN_VOICE_ENGINE_BIN || path.resolve(__dirname, "../target/release/zen-voice-engine.exe");
   const engine = spawn(enginePath, [], { stdio: ["pipe", "pipe", "inherit"] });
 

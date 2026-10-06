@@ -1,0 +1,49 @@
+diff --git a/src/zen/moz.build b/src/zen/moz.build
+--- a/src/zen/moz.build
++++ b/src/zen/moz.build
+@@ -24,4 +24,5 @@ DIRS += [
+     "spaces",
+     "space-routing",
+     "sync",
++    "voice-nav",
+     "window-drag",
+ ]
+diff --git a/src/zen/common/sys/ZenActorsManager.sys.mjs b/src/zen/common/sys/ZenActorsManager.sys.mjs
+--- a/src/zen/common/sys/ZenActorsManager.sys.mjs
++++ b/src/zen/common/sys/ZenActorsManager.sys.mjs
+@@ -60,4 +60,18 @@ let JSWINDOWACTORS = {
+     enablePreference: "zen.glance.enabled",
+   },
++  ZenVoiceNav: {
++    parent: {
++      esModuleURI: "resource:///actors/ZenVoiceNavParent.sys.mjs",
++    },
++    child: {
++      esModuleURI: "resource:///actors/ZenVoiceNavChild.sys.mjs",
++      events: {
++        DOMContentLoaded: {},
++        pageshow: {},
++      },
++    },
++    allFrames: true,
++    messageManagerGroups: ["browsers"],
++    remoteTypes: ["web", "file", "privilegedabout"],
++    safeForUntrustedWebProcess: true,
++    enablePreference: "zen.voicenav.enabled",
++  },
+ };
+diff --git a/src/zen/zen.globals.mjs b/src/zen/zen.globals.mjs
+--- a/src/zen/zen.globals.mjs
++++ b/src/zen/zen.globals.mjs
+@@ -40,4 +40,5 @@ export const globals = [
+   "gZenGlanceManager",
++  "gZenVoiceNavManager",
+   "gZenSplitView",
+ ];
+diff --git a/src/zen/common/ZenPreloadedScripts.js b/src/zen/common/ZenPreloadedScripts.js
+--- a/src/zen/common/ZenPreloadedScripts.js
++++ b/src/zen/common/ZenPreloadedScripts.js
+@@ -26,4 +26,5 @@ const PRELOADED_SCRIPTS = [
+     "chrome://browser/content/zen-components/ZenGlanceManager.mjs",
++    "chrome://browser/content/zen-components/ZenVoiceNavManager.mjs",
+ ];

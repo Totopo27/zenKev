@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use serde::{Deserialize, Serialize};
+pub use crate::vlm_engine::{VisualInspectionRequest, VisualInspectionResult};
 
 /// Coordenadas de un elemento en píxeles CSS
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +30,8 @@ pub struct CandidateNode {
 /// Petición JSON-RPC recibida desde Zen Browser
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClassifyRequest {
+    #[serde(default, rename = "type")]
+    pub request_type: Option<String>,
     pub transcript: String,
     pub candidates: Vec<CandidateNode>,
     #[serde(default = "default_top_k")]
@@ -37,6 +40,14 @@ pub struct ClassifyRequest {
 
 fn default_top_k() -> usize {
     10
+}
+
+/// Petición polimórfica recibida por stdin (NDJSON)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum EngineRequest {
+    InspectVisual(VisualInspectionRequest),
+    Classify(ClassifyRequest),
 }
 
 /// Candidato puntuado por el filtro léxico de Fase 1 del pipeline

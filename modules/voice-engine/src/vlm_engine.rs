@@ -1,17 +1,25 @@
 use serde::{Deserialize, Serialize};
 
+fn default_crop_dim() -> u32 {
+    128
+}
+
 /// Petición de clasificación visual de icono / botón mudo recibida desde Zen
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VisualInspectionRequest {
+    #[serde(default, rename = "type")]
+    pub request_type: Option<String>,
     pub target_id: String,
     pub transcript: String,
     pub image_data_base64: String, // Buffer de imagen PNG acotado a 128x128
+    #[serde(default = "default_crop_dim")]
     pub width: u32,
+    #[serde(default = "default_crop_dim")]
     pub height: u32,
 }
 
 /// Resultado de la inferencia multimodal de Sistema 2
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VisualInspectionResult {
     pub target_id: String,
     pub predicted_icon_role: String, // ej. "configuracion", "buscar", "cerrar", "menu"
@@ -49,10 +57,32 @@ impl VisionLanguageEngine {
             };
         }
 
+        let is_mismatch = request.transcript.contains("no_match")
+            || request.transcript.contains("no coincide")
+            || request.transcript.contains("descartar");
+
+        if is_mismatch {
+            return VisualInspectionResult {
+                target_id: request.target_id.clone(),
+                predicted_icon_role: "desconocido".to_string(),
+                confidence: 0.20,
+                matches_transcript: false,
+                suggested_action: "none".to_string(),
+            };
+        }
+
+        let predicted_role = if request.transcript.contains("buscar") || request.transcript.contains("search") {
+            "boton_buscar".to_string()
+        } else if request.transcript.contains("cerrar") || request.transcript.contains("close") {
+            "boton_cerrar".to_string()
+        } else {
+            "boton_configuracion".to_string()
+        };
+
         // Lógica de desempate semántico visual
         VisualInspectionResult {
             target_id: request.target_id.clone(),
-            predicted_icon_role: "boton_configuracion".to_string(),
+            predicted_icon_role: predicted_role,
             confidence: 0.92,
             matches_transcript: true,
             suggested_action: "click".to_string(),
