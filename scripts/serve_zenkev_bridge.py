@@ -24,8 +24,8 @@ from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import materialize
 from kev.device import default_device, empty_cache, sync
 
-DEFAULT_LOCAL_PATH = r"D:\Zen\runs\zenkev-v4-final" if os.name == "nt" else "/mnt/d/Zen/runs/zenkev-v4-final"
-HF_REPO_ID = "Ttotopo27/zenkev-v4"
+DEFAULT_LOCAL_PATH = r"D:\Zen\runs\zenkev-v6-strict" if os.name == "nt" else "/mnt/d/Zen/runs/zenkev-v6-strict"
+HF_REPO_ID = "Ttotopo27/zenkev-v6"
 
 MODEL_PATH = os.environ.get("ZENKEV_MODEL_PATH")
 if not MODEL_PATH:
@@ -56,7 +56,7 @@ class KevServerHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"status":"ok","model":"zenkev-v4-final"}')
+            self.wfile.write(b'{"status":"ok","model":"zenkev-v6-strict"}')
         else:
             self.send_response(404)
             self.end_headers()
