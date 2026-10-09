@@ -600,11 +600,17 @@ export function toggleNativeVoicePanel(topWin) {
     if (panel.style.display === "none") {
       panel.style.display = "flex";
       updatePanelHistoryUI();
+      try {
+        playEarcon("unmute", win);
+      } catch (_) {}
       win.requestAnimationFrame(() => {
         panel.style.opacity = "1";
         panel.style.transform = "translateY(0) scale(1)";
       });
     } else {
+      try {
+        playEarcon("mute", win);
+      } catch (_) {}
       panel.style.opacity = "0";
       panel.style.transform = "translateY(-10px) scale(0.97)";
       const onTransitionEnd = (e) => {
@@ -619,6 +625,11 @@ export function toggleNativeVoicePanel(topWin) {
     }
     return;
   }
+
+  // Reproducir sonido al abrir por primera vez
+  try {
+    playEarcon("unmute", win);
+  } catch (_) {}
 
   // Crear el panel flotante Glassmorphism en Chrome Window
   panel = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
