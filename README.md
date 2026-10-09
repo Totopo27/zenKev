@@ -64,13 +64,13 @@ node modules/voice-engine/tests/benchmark_throughput.mjs
 ```
 
 ### 3. Serving the zenKev Bridge (Kev-4B NLI Model)
-The fine-tuned Kev-4B checkpoint is hosted on Hugging Face: [Ttotopo27/zenkev-v4](https://huggingface.co/Ttotopo27/zenkev-v4).
+The fine-tuned Kev-4B checkpoint is hosted on Hugging Face: [Ttotopo27/zenkev-v6](https://huggingface.co/Ttotopo27/zenkev-v6).
 
 To start the local HTTP bridge server:
 ```bash
 python scripts/serve_zenkev_bridge.py
 ```
-*Note: If no local checkpoint path is defined via `ZENKEV_MODEL_PATH`, the bridge will automatically download and resolve the checkpoint from `Ttotopo27/zenkev-v4`.*
+*Note: If no local checkpoint path is defined via `ZENKEV_MODEL_PATH`, the bridge will automatically download and resolve the checkpoint from `Ttotopo27/zenkev-v6`.*
 
 ---
 
