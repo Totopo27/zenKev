@@ -248,6 +248,22 @@
       </ul>
     </div>
 
+    <!-- Playground Interactivo en Vivo con Kev-4B v6 -->
+    <div class="card" style="margin-bottom: 25px; border-color: var(--accent); background: linear-gradient(180deg, #18202c 0%, #111827 100%);">
+      <h2>⚡ Inferencia en Vivo con Kev-4B v6 (Prueba Directa de Comandos)</h2>
+      <p style="font-size:14px; color:var(--text-muted); margin-bottom:15px;">
+        Escribe cualquier frase (o usa reconocimiento de voz en el navegador) y comprueba cómo el modelo <strong>Kev-4B v6</strong> clasifica el subsistema, la acción y la confianza en tiempo real.
+      </p>
+      <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+        <input type="text" id="live-voice-input" placeholder="Ej: 'Cierra la pestaña actual', 'Haz clic en Guardar cambios', 'Lee el artículo'..." style="flex:1;" onkeydown="if(event.key==='Enter') executeLivePredict()">
+        <button class="primary" onclick="executeLivePredict()">🚀 Probar Modelo</button>
+        <button id="btn-browser-mic" onclick="toggleBrowserSpeech()" style="background:#059669; border-color:#10b981;">🎤 Dictar</button>
+      </div>
+      <div id="predict-result" style="display:none; padding:12px; border-radius:8px; background:#0b111a; border:1px solid #1e293b; font-family:monospace; font-size:13px;">
+        <!-- Se llena dinámicamente -->
+      </div>
+    </div>
+
     <div class="grid">
       <!-- Acciones de Navegación -->
       <div class="card">
@@ -363,6 +379,98 @@
         logAction(event.data.action);
       }
     });
+
+    // Inferencia interactiva contra el endpoint de Kev-4B v6
+    async function executeLivePredict() {
+      const input = document.getElementById("live-voice-input");
+      const resBox = document.getElementById("predict-result");
+      const phrase = input.value.trim();
+      if (!phrase) return;
+
+      resBox.style.display = "block";
+      resBox.innerHTML = `<span style="color:#94a3b8;">⏳ Consultando Kev-4B v6 en tiempo real...</span>`;
+
+      try {
+        const t0 = performance.now();
+        const resp = await fetch("/api/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript: phrase })
+        });
+        const data = await resp.json();
+        const lat = Math.round(performance.now() - t0);
+
+        if (data.error) {
+          resBox.innerHTML = `<span style="color:#ef4444;">❌ Error: ${data.error}</span>`;
+          return;
+        }
+
+        const subConf = (data.subsystem_conf * 100).toFixed(1);
+        const actConf = (data.action_conf * 100).toFixed(1);
+
+        resBox.innerHTML = `
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <strong style="color:#38bdf8;">Comando: "${data.transcript}"</strong>
+            <span style="color:#10b981; font-weight:bold;">⚡ ${lat} ms</span>
+          </div>
+          <div>• <strong>Subsistema:</strong> <span style="color:#a855f7;">${data.subsystem}</span> (${subConf}%)</div>
+          <div>• <strong>Acción:</strong>     <span style="color:#eab308;">${data.action}</span> (${actConf}%)</div>
+        `;
+
+        logAction(`[Kev-4B v6] "${phrase}" -> ${data.subsystem}/${data.action} (${lat}ms)`);
+      } catch (err) {
+        resBox.innerHTML = `<span style="color:#ef4444;">❌ Error de conexión con el backend: ${err.message}</span>`;
+      }
+    }
+
+    // Dictado por voz opcional usando la Web Speech API nativa del navegador
+    let recognition = null;
+    function toggleBrowserSpeech() {
+      const btn = document.getElementById("btn-browser-mic");
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Tu navegador no soporta Web Speech API nativa. Puedes escribir el texto en el campo o usar zen_live_mic.py");
+        return;
+      }
+
+      if (recognition) {
+        recognition.stop();
+        recognition = null;
+        btn.textContent = "🎤 Dictar";
+        btn.style.background = "#059669";
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "es-ES";
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        btn.textContent = "🔴 Escuchando...";
+        btn.style.background = "#dc2626";
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById("live-voice-input").value = transcript;
+        executeLivePredict();
+      };
+
+      recognition.onerror = (e) => {
+        console.error(e);
+        btn.textContent = "🎤 Dictar";
+        btn.style.background = "#059669";
+        recognition = null;
+      };
+
+      recognition.onend = () => {
+        btn.textContent = "🎤 Dictar";
+        btn.style.background = "#059669";
+        recognition = null;
+      };
+
+      recognition.start();
+    }
   </script>
 </body>
 </html>
