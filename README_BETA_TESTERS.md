@@ -39,6 +39,22 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 
 ---
 
+## 🧠 Modos de Inferencia: ¿Cómo opera la IA?
+
+El sistema cuenta con dos niveles de inteligencia integrados:
+
+### 1. Modo Predeterminado (CPU Ultra-rápido, <3 ms)
+* **No requiere descargas pesadas ni tarjeta de video dedicada.**
+* Resuelve navegación de pestañas, ventanas, URLs y clics semánticos directamente en la CPU mediante el motor compilado en Rust.
+
+### 2. Modo Sistema 2 con Kev-4B v6 (Inferencia Profunda)
+Si quieres probar el razonamiento completo con el modelo fine-tuned **[Ttotopo27/zenkev-v6](https://huggingface.co/Ttotopo27/zenkev-v6)**:
+1. Haz doble clic en **`iniciar_servidor_kev.bat`**.
+2. El script levantará el puente de inferencia en el puerto 8080 (descargando automáticamente los pesos desde Hugging Face si no los tienes).
+3. Abre Zen Browser normalmente: el navegador detectará automáticamente el servidor y delegará las decisiones complejas a Kev-4B v6.
+
+---
+
 ## 🔄 Cómo Desinstalar
 
 Si deseas volver al estado 100% de fábrica de Zen Browser en cualquier momento:
