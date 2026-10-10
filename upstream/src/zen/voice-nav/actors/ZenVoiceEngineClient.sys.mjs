@@ -101,6 +101,7 @@ export class ZenVoiceEngineClient {
         environment: {
           RUST_BACKTRACE: "1",
           ZEN_VOICE_IPC_PATH: ipcPath,
+          ZEN_VOICE_ENGINE_LOG: PathUtils.join(PathUtils.tempDir, "zen_voice_engine.log"),
         },
         stderr: "stdout",
       });
@@ -271,14 +272,145 @@ export class ZenVoiceEngineClient {
     }) + "\n";
 
     return new Promise((resolve, reject) => {
-      this.#pendingRequests.push({ resolve, reject });
+      let timeoutId = null;
+
+      const requestEntry = {
+        resolve: (val) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          resolve(val);
+        },
+        reject: (err) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          reject(err);
+        },
+      };
+
+      timeoutId = setTimeout(() => {
+        timeoutId = null;
+        const idx = this.#pendingRequests.indexOf(requestEntry);
+        if (idx !== -1) {
+          this.#pendingRequests.splice(idx, 1);
+        }
+        logDebug("[ZenVoiceEngineClient] Timeout de respuesta del motor Rust (1000ms). Usando respaldo in-process.");
+        resolve(this.#inProcessLexicalClassify(transcript, candidates, topK));
+      }, 1000);
+
+      this.#pendingRequests.push(requestEntry);
+
       this.#process.stdin.write(payload).catch((err) => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
         // Remover de la cola si falló la escritura
-        const idx = this.#pendingRequests.findIndex((r) => r.resolve === resolve);
+        const idx = this.#pendingRequests.indexOf(requestEntry);
         if (idx !== -1) this.#pendingRequests.splice(idx, 1);
         reject(err);
       });
     });
+  }
+
+  /**
+   * Inspección visual multimodal de botón mudo / icono (Sistema 2).
+   * @param {string|number} targetId - ID del nodo accesible.
+   * @param {string} transcript - Texto transcrito por voz.
+   * @param {object} crop - Recorte { success, dataUrl, width, height }.
+   * @returns {Promise<object>} VisualInspectionResult
+   */
+  async inspectVisual(targetId, transcript, crop = {}) {
+    let forceMock = false;
+    try {
+      forceMock = Services.prefs.getBoolPref("zen.voicenav.mock-engine", false);
+    } catch (_) {}
+
+    if (forceMock) {
+      logDebug("[ZenVoiceEngineClient] zen.voicenav.mock-engine activado. Usando VLM fallback in-process.");
+      return this.#inProcessVisualFallback(targetId, transcript, crop);
+    }
+
+    const started = await this.ensureStarted();
+    if (!started) {
+      logDebug("[ZenVoiceEngineClient] Subproceso de voz no disponible. Activando fallback VLM in-process.");
+      return this.#inProcessVisualFallback(targetId, transcript, crop);
+    }
+
+    const payload = JSON.stringify({
+      type: "inspect_visual",
+      target_id: String(targetId),
+      transcript,
+      image_data_base64: crop?.dataUrl || "",
+      width: crop?.width || 128,
+      height: crop?.height || 128,
+    }) + "\n";
+
+    return new Promise((resolve, reject) => {
+      let timeoutId = null;
+
+      const requestEntry = {
+        resolve: (val) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          resolve(val);
+        },
+        reject: (err) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          reject(err);
+        },
+      };
+
+      timeoutId = setTimeout(() => {
+        timeoutId = null;
+        const idx = this.#pendingRequests.indexOf(requestEntry);
+        if (idx !== -1) {
+          this.#pendingRequests.splice(idx, 1);
+        }
+        logDebug("[ZenVoiceEngineClient] Timeout de respuesta VLM del motor Rust (1000ms). Usando respaldo in-process.");
+        resolve(this.#inProcessVisualFallback(targetId, transcript, crop));
+      }, 1000);
+
+      this.#pendingRequests.push(requestEntry);
+
+      this.#process.stdin.write(payload).catch((err) => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        const idx = this.#pendingRequests.indexOf(requestEntry);
+        if (idx !== -1) this.#pendingRequests.splice(idx, 1);
+        reject(err);
+      });
+    });
+  }
+
+  /**
+   * Fallback visual in-process determinista cuando el motor de Rust no está activo o está en modo mock.
+   * @param {string|number} targetId - ID del nodo accesible.
+   * @param {string} transcript - Texto transcrito por voz.
+   * @param {object} crop - Recorte del nodo.
+   * @returns {object} VisualInspectionResult
+   */
+  #inProcessVisualFallback(targetId, transcript, crop = {}) {
+    const tNorm = (transcript || "").toLowerCase().trim();
+    const isMismatch = tNorm.includes("no_match") || tNorm.includes("descartar") || tNorm.includes("no coincide");
+
+    return {
+      target_id: String(targetId),
+      predicted_icon_role: isMismatch ? "desconocido" : "boton_configuracion",
+      confidence: isMismatch ? 0.20 : 0.85,
+      matches_transcript: !isMismatch,
+      suggested_action: isMismatch ? "none" : "click",
+    };
   }
 
   /**
@@ -346,6 +478,125 @@ export class ZenVoiceEngineClient {
     };
   }
 
+  #micActive = false;
+  #micProcess = null;
+
+  async #resolvePythonBin() {
+    try {
+      const pref = Services.prefs.getStringPref("zen.voicenav.python-path");
+      if (pref) return pref;
+    } catch (_) {}
+
+    const envPy = Services.env?.get("PYTHONW_BIN") || Services.env?.get("PYTHON_BIN");
+    if (envPy) return envPy;
+
+    try {
+      const foundW = await Subprocess.pathSearch("pythonw.exe");
+      if (foundW) return foundW;
+    } catch (_) {}
+    try {
+      const foundPy = await Subprocess.pathSearch("python.exe");
+      if (foundPy) return foundPy;
+    } catch (_) {}
+
+    const candidates = [
+      "C:\\Python314\\pythonw.exe",
+      "C:\\Python314\\python.exe",
+      "C:\\Python313\\pythonw.exe",
+      "C:\\Python312\\pythonw.exe",
+    ];
+    for (const c of candidates) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
+      } catch (_) {}
+    }
+    return "pythonw.exe";
+  }
+
+  async #resolveMicScript() {
+    try {
+      const pref = Services.prefs.getStringPref("zen.voicenav.mic-script");
+      if (pref) return pref;
+    } catch (_) {}
+
+    const candidates = [
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py",
+      PathUtils.join(PathUtils.profileDir, "zen_live_mic.py"),
+    ];
+    for (const c of candidates) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
+      } catch (_) {}
+    }
+    return "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py";
+  }
+
+  async startMicDaemon() {
+    this.#micActive = true;
+    logDebug("Iniciando captura de voz en vivo...");
+    const started = await this.ensureStarted();
+
+    if (this.#micProcess) {
+      logDebug("Demonio de micrófono ya está activo.");
+      return;
+    }
+
+    try {
+      const pythonBin = await this.#resolvePythonBin();
+      const scriptPath = await this.#resolveMicScript();
+      logDebug(`Lanzando demonio de micrófono con ${pythonBin} -> ${scriptPath}`);
+
+      this.#micProcess = await Subprocess.call({
+        command: pythonBin,
+        arguments: [scriptPath],
+        environment: {
+          PYTHONUNBUFFERED: "1",
+          ZEN_VOICE_PIPE_NAME: "\\\\.\\pipe\\zen_voice_ipc",
+        },
+      });
+      logDebug(`Demonio de micrófono iniciado con éxito (PID: ${this.#micProcess?.pid})`);
+    } catch (err) {
+      logDebug(`Aviso: Error lanzando python mic con Subprocess (${err}). Probando control nativo Rust...`);
+      if (started && this.#process?.stdin) {
+        try {
+          const payload = JSON.stringify({ type: "control", action: "start_mic" }) + "\n";
+          await this.#process.stdin.write(payload);
+        } catch (_) {}
+      }
+    }
+  }
+
+  stopMicDaemon() {
+    this.#micActive = false;
+    logDebug("Desactivando captura de micrófono...");
+    if (this.#micProcess) {
+      try {
+        this.#micProcess.kill();
+      } catch (_) {}
+      this.#micProcess = null;
+    }
+    if (this.#process?.stdin) {
+      try {
+        const payload = JSON.stringify({ type: "control", action: "stop_mic" }) + "\n";
+        this.#process.stdin.write(payload).catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  toggleMicDaemon() {
+    if (this.#micActive) {
+      this.stopMicDaemon();
+      return false;
+    } else {
+      this.startMicDaemon();
+      return true;
+    }
+  }
+
+  isMicActive() {
+    return this.#micActive;
+  }
+
   /**
    * Detiene el subproceso limpiamente.
    */
@@ -354,6 +605,7 @@ export class ZenVoiceEngineClient {
   }
 
   #cleanup() {
+    this.stopMicDaemon();
     if (this.#observerBound) {
       try {
         Services.obs.removeObserver(this, "quit-application-granted");

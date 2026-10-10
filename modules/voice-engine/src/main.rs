@@ -4,24 +4,18 @@
 
 use mimalloc::MiMalloc;
 use std::io::{self, BufRead, Write};
+use std::sync::Arc;
 use std::time::Instant;
+use zen_voice_engine::audio_capture::AudioCapture;
 use zen_voice_engine::ipc;
 use zen_voice_engine::protocol::{ClassifyResult, EngineRequest};
+use zen_voice_engine::stt::{SpeechToTextEngine, WhisperConfig};
 use zen_voice_engine::vlm_engine::VisionLanguageEngine;
-use zen_voice_engine::{lexical_ranker, nli_engine};
+use zen_voice_engine::{lexical_ranker, log_debug, nli_engine};
 
 // Activación del asignador mimalloc (Catálogo §14.1)
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
-
-/// Log de depuración condicional activado por la variable de entorno ZEN_VOICE_ENGINE_LOG
-fn log_debug(msg: &str) {
-    if let Ok(log_path) = std::env::var("ZEN_VOICE_ENGINE_LOG") {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-            let _ = writeln!(f, "{}", msg);
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -43,6 +37,26 @@ async fn main() -> anyhow::Result<()> {
         ipc::emit_transcription_ready(transcript);
     });
 
+    // Módulo de captura nativa de micrófono y STT (Fase 1: sustitución de Python)
+    let audio_capture = Arc::new(AudioCapture::new());
+    let stt_engine = Arc::new(SpeechToTextEngine::new(WhisperConfig::default()));
+
+    let audio_capture_for_ctrl = Arc::clone(&audio_capture);
+    let stt_engine_clone = Arc::clone(&stt_engine);
+
+    // Arrancar la captura nativa si se solicita por flag de entorno o por defecto si está habilitado
+    if std::env::var("ZEN_VOICE_AUTO_MIC").unwrap_or_default() == "1" {
+        let stt = Arc::clone(&stt_engine_clone);
+        let _ = audio_capture.start(move |audio_samples| {
+            if let Ok(transcript) = stt.transcribe(&audio_samples) {
+                if !transcript.trim().is_empty() {
+                    log_debug(&format!("Audio capturado y transcripto nativamente: {}", transcript));
+                    ipc::emit_transcription_ready(&transcript);
+                }
+            }
+        });
+    }
+
     let stdin = io::stdin();
     let stdout = io::stdout();
 
@@ -62,11 +76,66 @@ async fn main() -> anyhow::Result<()> {
         // 1. Deserialización del request polimórfico (Classify o InspectVisual)
         let request: Result<EngineRequest, _> = serde_json::from_str(&line);
         match request {
+            Ok(EngineRequest::Control(ctrl)) => {
+                log_debug(&format!("STDIN ControlRequest: action='{}'", ctrl.action));
+                match ctrl.action.as_str() {
+                    "start_mic" => {
+                        let stt = Arc::clone(&stt_engine_clone);
+                        let res = audio_capture_for_ctrl.start(move |audio_samples| {
+                            if let Ok(transcript) = stt.transcribe(&audio_samples) {
+                                if !transcript.trim().is_empty() {
+                                    log_debug(&format!("Audio capturado nativamente: {}", transcript));
+                                    ipc::emit_transcription_ready(&transcript);
+                                }
+                            }
+                        });
+                        let status = if res.is_ok() { "started" } else { "error" };
+                        let json_out = format!("{{\"type\":\"control_result\",\"action\":\"start_mic\",\"status\":\"{}\"}}\n", status);
+                        let mut out = stdout.lock();
+                        out.write_all(json_out.as_bytes())?;
+                        out.flush()?;
+                    }
+                    "stop_mic" => {
+                        audio_capture_for_ctrl.stop();
+                        let json_out = "{\"type\":\"control_result\",\"action\":\"stop_mic\",\"status\":\"stopped\"}\n";
+                        let mut out = stdout.lock();
+                        out.write_all(json_out.as_bytes())?;
+                        out.flush()?;
+                    }
+                    "toggle_mic" => {
+                        let is_running = audio_capture_for_ctrl.is_running();
+                        if is_running {
+                            audio_capture_for_ctrl.stop();
+                            let json_out = "{\"type\":\"control_result\",\"action\":\"toggle_mic\",\"status\":\"stopped\"}\n";
+                            let mut out = stdout.lock();
+                            out.write_all(json_out.as_bytes())?;
+                            out.flush()?;
+                        } else {
+                            let stt = Arc::clone(&stt_engine_clone);
+                            let res = audio_capture_for_ctrl.start(move |audio_samples| {
+                                if let Ok(transcript) = stt.transcribe(&audio_samples) {
+                                    if !transcript.trim().is_empty() {
+                                        log_debug(&format!("Audio capturado nativamente: {}", transcript));
+                                        ipc::emit_transcription_ready(&transcript);
+                                    }
+                                }
+                            });
+                            let status = if res.is_ok() { "started" } else { "error" };
+                            let json_out = format!("{{\"type\":\"control_result\",\"action\":\"toggle_mic\",\"status\":\"{}\"}}\n", status);
+                            let mut out = stdout.lock();
+                            out.write_all(json_out.as_bytes())?;
+                            out.flush()?;
+                        }
+                    }
+                    _ => {
+                        let json_out = "{\"type\":\"control_result\",\"status\":\"unknown_action\"}\n";
+                        let mut out = stdout.lock();
+                        out.write_all(json_out.as_bytes())?;
+                        out.flush()?;
+                    }
+                }
+            }
             Ok(EngineRequest::InspectVisual(req)) => {
-                log_debug(&format!(
-                    "STDIN InspectVisual: target_id='{}', transcript='{}', dim={}x{}",
-                    req.target_id, req.transcript, req.width, req.height
-                ));
 
                 let result = vlm_engine.inspect_icon(&req);
                 let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;

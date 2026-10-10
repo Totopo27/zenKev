@@ -12,6 +12,12 @@
  */
 
 import { ZenVoiceEngineClient } from "./ZenVoiceEngineClient.sys.mjs";
+import {
+  EARCON_ERROR_URI,
+  EARCON_MUTE_URI,
+  EARCON_SUCCESS_URI,
+  EARCON_UNMUTE_URI,
+} from "./ZenVoiceEarconsData.sys.mjs";
 
 function logDebug(msg) {
   let isDebug = false;
@@ -165,8 +171,41 @@ export function playEarcon(type = "success", topWin = null) {
     } catch (_) {}
     if (!earconsEnabled) return;
 
+    // 1. Reproducción inmediata por Audio Element con URI base64 nativa en la ventana Chrome
+    try {
+      let soundUri = null;
+      if (type === "unmute") soundUri = EARCON_UNMUTE_URI;
+      else if (type === "mute") soundUri = EARCON_MUTE_URI;
+      else if (type === "success") soundUri = EARCON_SUCCESS_URI;
+      else if (type === "error" || type === "unrecognized") soundUri = EARCON_ERROR_URI;
+
+      if (soundUri && win.Audio) {
+        const audio = new win.Audio(soundUri);
+        audio.volume = 0.4;
+        audio.play().catch(() => {});
+        return;
+      }
+    } catch (_) {}
+
+    // 2. Respaldo por nsISound si está disponible
+    try {
+      if (Cc && Ci?.nsISound) {
+        const sound = Cc["@mozilla.org/sound;1"]?.createInstance(Ci.nsISound);
+        if (sound) {
+          if (type === "unmute" || type === "success") {
+            sound.beep();
+          } else {
+            sound.beep();
+          }
+        }
+      }
+    } catch (_) {}
+
     const AudioContextClass = win.AudioContext || win.webkitAudioContext;
-    if (!AudioContextClass) return;
+    if (!AudioContextClass) {
+      Services.beep?.();
+      return;
+    }
 
     if (!win._zenVoiceAudioCtx || win._zenVoiceAudioCtx.state === "closed") {
       win._zenVoiceAudioCtx = new AudioContextClass();
@@ -175,6 +214,11 @@ export function playEarcon(type = "success", topWin = null) {
     if (ctx.state === "suspended") {
       ctx.resume().catch(() => {});
     }
+
+    // Asegurar beep nativo accesible si WebAudio esta bloqueado por politicas de audio
+    try {
+      Services.beep?.();
+    } catch (_) {}
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -188,7 +232,7 @@ export function playEarcon(type = "success", topWin = null) {
       osc.type = "sine";
       osc.frequency.setValueAtTime(540, now);
       osc.frequency.exponentialRampToValueAtTime(840, now + 0.12);
-      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.setValueAtTime(0.12, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
       osc.start(now);
       osc.stop(now + 0.14);
@@ -197,87 +241,31 @@ export function playEarcon(type = "success", topWin = null) {
       osc.type = "triangle";
       osc.frequency.setValueAtTime(320, now);
       osc.frequency.exponentialRampToValueAtTime(210, now + 0.15);
-      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.setValueAtTime(0.10, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
       osc.start(now);
       osc.stop(now + 0.17);
-    } else if (type === "listening") {
-      // Tono suave ascendente de inicio de escucha: 400Hz -> 600Hz (90ms)
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
-      gain.gain.setValueAtTime(0.06, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
-      osc.start(now);
-      osc.stop(now + 0.09);
     } else if (type === "mute") {
-      // Tono suave de apagado: 400Hz -> 280Hz (110ms)
+      // DESACTIVACION (Alt + V para apagar): Acorde descendente dual 520Hz -> 220Hz
       osc.type = "sine";
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.exponentialRampToValueAtTime(280, now + 0.1);
-      gain.gain.setValueAtTime(0.07, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 0.18);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
       osc.start(now);
-      osc.stop(now + 0.12);
+      osc.stop(now + 0.20);
     } else if (type === "unmute") {
-      // Tono brillante de encendido: 480Hz -> 740Hz (130ms)
+      // ACTIVACION (Alt + V para encender): Tono brillante ascendente 320Hz -> 880Hz
       osc.type = "sine";
-      osc.frequency.setValueAtTime(480, now);
-      osc.frequency.exponentialRampToValueAtTime(740, now + 0.12);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.16);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.start(now);
-      osc.stop(now + 0.14);
+      osc.stop(now + 0.18);
     }
   } catch (_) {}
 }
-
-/**
- * Anuncia un mensaje accesible para lectores de pantalla (NVDA, JAWS, Orca)
- * utilizando una Live Region nativa ARIA en el Chrome Window.
- * @param {string} message - Texto descriptivo a anunciar.
- * @param {"polite" | "assertive"} priority - Prioridad de habla.
- * @param {ChromeWindow} topWin
- */
-export function announceAccessibility(message, priority = "polite", topWin = null) {
-  try {
-    const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
-    if (!win || !win.document) return;
-
-    const doc = win.document;
-    let liveRegion = doc.getElementById("zenkev-a11y-announcer");
-    if (!liveRegion) {
-      liveRegion = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-      liveRegion.id = "zenkev-a11y-announcer";
-      liveRegion.setAttribute("aria-live", priority);
-      liveRegion.setAttribute("aria-atomic", "true");
-      liveRegion.style.cssText = `
-        position: absolute;
-        top: -9999px;
-        left: -9999px;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-      `;
-      const root = doc.getElementById("browser") || doc.documentElement;
-      root.appendChild(liveRegion);
-    } else {
-      liveRegion.setAttribute("aria-live", priority);
-    }
-
-    // Vaciar y asignar en frame siguiente para garantizar que los screen readers capturen la mutación
-    liveRegion.textContent = "";
-    win.requestAnimationFrame(() => {
-      liveRegion.textContent = message;
-    });
-  } catch (err) {
-    logDebug(`Error al anunciar a lector de pantalla: ${err}`);
-  }
-}
-
-Services.zenAnnounceA11y = announceAccessibility;
 
 // Exponer en Services para llamadas globales
 Services.zenPlayVoiceEarcon = playEarcon;
@@ -469,12 +457,6 @@ export function showNativeChromeHUD(topWin, { success = true, transcript = "", l
   // Feedback auditivo sutil (Earcon)
   playEarcon(success ? "success" : "error", win);
 
-  // Feedback accesible para lectores de pantalla (NVDA, JAWS)
-  const a11yText = transcript
-    ? `${success ? "Ejecutado" : "No encontrado"}: ${transcript}. ${label || ""}`
-    : label;
-  announceAccessibility(a11yText, success ? "polite" : "assertive", win);
-
   // Cancelar animación previa si existe
   if (win._zenkevChromeHudAnim) {
     try { win._zenkevChromeHudAnim.cancel(); } catch (_) {}
@@ -544,10 +526,8 @@ export function updateVoiceNavButtonState(state) {
 
   if (state === "muted" && prevState !== "muted") {
     playEarcon("mute");
-    announceAccessibility("Navegación por voz silenciada", "assertive");
   } else if (state === "listening" && prevState === "muted") {
     playEarcon("unmute");
-    announceAccessibility("Navegación por voz activa", "assertive");
   }
 
   const iconUri = getVoiceNavButtonIcon(state);
@@ -655,20 +635,35 @@ function updatePanelHistoryUI() {
  * Alterna el Panel Widget flotante nativo de zenKev con estética Glassmorphism.
  */
 export function toggleNativeVoicePanel(topWin) {
+  logDebug(`[ZenKev] toggleNativeVoicePanel invocado. topWin: ${Boolean(topWin)}`);
   const win = topWin || Services.wm?.getMostRecentWindow("navigator:browser");
-  if (!win || !win.document) return;
+  if (!win || !win.document) {
+    logDebug(`[ZenKev] toggleNativeVoicePanel abortado: no hay win o win.document`);
+    return;
+  }
 
   const doc = win.document;
   let panel = doc.getElementById("zenkev-native-glass-panel");
+  const engine = getVoiceEngineClient();
+
   if (panel) {
-    if (panel.style.display === "none") {
+    const isClosed = panel.style.display === "none" || panel.style.opacity === "0";
+    if (isClosed) {
       panel.style.display = "flex";
       updatePanelHistoryUI();
+      try {
+        playEarcon("unmute", win);
+      } catch (_) {}
+      engine.startMicDaemon().catch(() => {});
       win.requestAnimationFrame(() => {
         panel.style.opacity = "1";
         panel.style.transform = "translateY(0) scale(1)";
       });
     } else {
+      try {
+        playEarcon("mute", win);
+      } catch (_) {}
+      engine.stopMicDaemon();
       panel.style.opacity = "0";
       panel.style.transform = "translateY(-10px) scale(0.97)";
       const onTransitionEnd = (e) => {
@@ -684,6 +679,13 @@ export function toggleNativeVoicePanel(topWin) {
     return;
   }
 
+  // Reproducir sonido al abrir por primera vez y encender microfono
+  try {
+    playEarcon("unmute", win);
+  } catch (_) {}
+  engine.startMicDaemon().catch(() => {});
+
+  logDebug(`[ZenKev] Iniciando construcción de panel Glassmorphism...`);
   // Crear el panel flotante Glassmorphism en Chrome Window
   panel = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   panel.id = "zenkev-native-glass-panel";
@@ -968,8 +970,11 @@ export function toggleNativeVoicePanel(topWin) {
   shortcutTip.textContent = "Alternar panel con Alt + V";
   panel.appendChild(shortcutTip);
 
+  // En Gecko XUL/XHTML, los divs HTML con position:fixed deben anexarse al contenedor activo (#browser o documentElement),
+  // ya que mainPopupSet es un <popupset> exclusivo de frames de popup XUL que no dibuja divs HTML estándar.
   const container = doc.getElementById("browser") || doc.documentElement;
   container.appendChild(panel);
+  logDebug(`[ZenKev] Panel native glass anexado a container: ${container.id || container.tagName || container.nodeName}`);
 
   updatePanelHistoryUI();
 
@@ -1110,7 +1115,29 @@ export function registerZenVoiceNavWidget() {
 }
 
 try {
+  logDebug("Ejecutando bloque raíz de ZenVoiceNavParent.sys.mjs");
   registerZenVoiceNavWidget();
+} catch (_) {}
+
+// Registrar un observador del ciclo de vida de ventanas de navegador para asegurar
+// que el widget zen-voicenav-button esté siempre registrado y colocado al abrir la ventana.
+try {
+  Services.obs.addObserver({
+    observe(aSubject, aTopic) {
+      logDebug(`Observador de ventana recibido: topic=${aTopic}`);
+      if (aTopic === "browser-delayed-startup-finished" || aTopic === "domwindowopened") {
+        try {
+          const win = aSubject && aSubject.document ? aSubject : Services.wm?.getMostRecentWindow("navigator:browser");
+          if (win) {
+            initZenVoiceNav(win);
+          }
+          registerZenVoiceNavWidget();
+        } catch (errWin) {
+          logDebug(`Error en observador de ventana: ${errWin}`);
+        }
+      }
+    },
+  }, "browser-delayed-startup-finished");
 } catch (_) {}
 
 /**
@@ -1792,27 +1819,6 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
     return { handled: true, action: "open_preferences" };
   }
 
-  if (/^(?:cerrar|quitar)\s+(?:la\s+)?(?:configuraci[oó]n|ajustes|preferencias)$|^close\s+settings$/i.test(text)) {
-    logDebug("Comando global detectado: Cerrar configuración");
-    const tabs = getOpenTabs();
-    for (const t of tabs) {
-      const uri = t.linkedBrowser?.currentURI?.spec || "";
-      if (uri.startsWith("about:preferences")) {
-        if (gBrowser) gBrowser.removeTab(t);
-        notifyHUD(true, "Configuración cerrada");
-        return { handled: true, action: "close_preferences" };
-      }
-    }
-    // Si no encontró pestaña explícita pero la actual es about:preferences, cerrarla
-    if (gBrowser?.selectedTab?.linkedBrowser?.currentURI?.spec?.startsWith("about:preferences")) {
-      gBrowser.removeTab(gBrowser.selectedTab);
-      notifyHUD(true, "Configuración cerrada");
-      return { handled: true, action: "close_preferences" };
-    }
-    notifyHUD(false, "Configuración no encontrada");
-    return { handled: true, action: "close_preferences_not_found" };
-  }
-
   // 6.5. Control de Estado de Voz (Silenciar / Activar micrófono)
   if (/^(?:silenciar|desactivar|pausar)\s+voz$/i.test(text)) {
     logDebug("Comando global detectado: Silenciar voz");
@@ -2464,8 +2470,10 @@ export async function executeGlobalVoiceCommand(transcript, topWin, actor = null
 }
 
 export function initZenVoiceNav(topWin) {
+  logDebug(`Invocando initZenVoiceNav en ventana: ${topWin ? topWin.location?.href : 'null'}`);
   if (!topWin || topWin._zenVoiceNavInitialized) return;
   topWin._zenVoiceNavInitialized = true;
+  logDebug(`initZenVoiceNav: inicializando listeners y registro de atajos en ventana.`);
 
   // Desactivar popups molestos no solicitados (como traducción automática de páginas)
   try {
@@ -2558,21 +2566,54 @@ export function initZenVoiceNav(topWin) {
       if (!actor) return;
       if (topWin._zenVoiceNavOverlayActive) {
         topWin._zenVoiceNavOverlayActive = false;
-        playEarcon("mute", topWin);
-        announceAccessibility("Marcas numéricas desactivadas", "polite", topWin);
         await actor.hideVisualOverlay();
       } else {
         topWin._zenVoiceNavOverlayActive = true;
-        playEarcon("listening", topWin);
         const r = await actor.getCandidates(true);
-        const count = r.candidates?.length || 0;
-        announceAccessibility(`Marcas visuales activadas. ${count} elementos interactivos en pantalla`, "polite", topWin);
         await actor.showVisualOverlay(r.candidates || []);
       }
     }
   };
 
+  // Inyectar comando nativo XUL y atajo en el keyset del navegador para evitar que Gecko lo filtre
+  try {
+    const doc = topWin.document;
+    if (doc) {
+      let cmd = doc.getElementById("cmd_zenToggleVoiceNav");
+      if (!cmd) {
+        const cmdset = doc.getElementById("mainCommandSet") || doc.documentElement;
+        cmd = doc.createXULElement("command");
+        cmd.id = "cmd_zenToggleVoiceNav";
+        cmd.setAttribute("id", "cmd_zenToggleVoiceNav");
+        cmd.setAttribute("oncommand", "");
+        cmd.addEventListener("command", (ev) => {
+          logDebug("Comando XUL cmd_zenToggleVoiceNav disparado por teclado");
+          toggleNativeVoicePanel(topWin);
+        });
+        cmdset.appendChild(cmd);
+      }
+
+      let key = doc.getElementById("key_zenToggleVoiceNav");
+      if (!key) {
+        const keyset = doc.getElementById("mainKeyset") || doc.getElementById("zenKeyset") || doc.documentElement;
+        key = doc.createXULElement("key");
+        key.id = "key_zenToggleVoiceNav";
+        key.setAttribute("id", "key_zenToggleVoiceNav");
+        key.setAttribute("key", "v");
+        key.setAttribute("modifiers", "alt");
+        key.setAttribute("command", "cmd_zenToggleVoiceNav");
+        key.setAttribute("reserved", "true");
+        key.setAttribute("internal", "true");
+        keyset.appendChild(key);
+        logDebug("Elemento <key id='key_zenToggleVoiceNav'> inyectado en keyset nativo de XUL");
+      }
+    }
+  } catch (errXul) {
+    logDebug(`Error inyectando key en XUL keyset: ${errXul}`);
+  }
+
   topWin.addEventListener("keydown", (e) => {
+    logDebug(`Keydown detectado: key=${e.key}, code=${e.code}, alt=${e.altKey}, ctrl=${e.ctrlKey}, shift=${e.shiftKey}`);
     // Atajos no conflictivos con Zen Browser ni Windows:
     // 1. F2 (tecla única rápida)
     // 2. Ctrl + Shift + Espacio (estilo asistente manos libres)
@@ -2598,8 +2639,6 @@ export function initZenVoiceNav(topWin) {
   }, { capture: true });
 
   console.log("[ZenKev] Inicializado con éxito. Alternar capa visual con F2, Ctrl+Shift+Espacio o Alt+Shift+V.");
-  playEarcon("unmute", topWin);
-  announceAccessibility("Zen Voice Navigator activo. Presiona F2 para alternar marcas visuales.", "polite", topWin);
   getVoiceEngineClient();
 }
 
@@ -2615,85 +2654,16 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
   }
 
   /**
-   * Obtiene los candidatos interactivos de la pestaña actual, agregando
-   * todos los contextos de navegación (top-level y sub-marcos / iframes).
+   * Obtiene los candidatos interactivos de la pestaña actual.
    * @param {boolean} onlyVisible - Si es true, poda elementos fuera del viewport.
    */
   async getCandidates(onlyVisible = true) {
     try {
-      // 1. Obtener todos los contextos en el sub-árbol de la pestaña
-      const rootBc = this.browsingContext?.top || this.browsingContext;
-      const bcs = rootBc?.getAllBrowsingContextsInSubtree
-        ? rootBc.getAllBrowsingContextsInSubtree()
-        : [this.browsingContext];
-
-      const allCandidates = [];
-      let topViewport = { width: 1280, height: 800 };
-      let topUrl = "";
-      let topTitle = "";
-
-      for (const bc of bcs) {
-        if (!bc || bc.isDiscarded) continue;
-        try {
-          const actor = bc.currentWindowGlobal?.getActor("ZenVoiceNav");
-          if (!actor) continue;
-
-          const res = await actor.sendQuery("ZenVoiceNav:GetCandidates", { onlyVisible });
-          if (!res || !res.candidates) continue;
-
-          const isTop = bc === rootBc;
-          if (isTop) {
-            topViewport = res.viewport || topViewport;
-            topUrl = res.url || "";
-            topTitle = res.title || "";
-          }
-
-          const bcId = bc.id;
-
-          for (const cand of res.candidates) {
-            // Asignar ID compuesto con el BrowsingContext para enrutar acciones precisas a iframes
-            cand.bcId = bcId;
-            cand.rawId = cand.id;
-            cand.id = isTop ? String(cand.id) : `f${bcId}_${cand.id}`;
-            cand.isIframe = !isTop;
-            allCandidates.push(cand);
-          }
-        } catch (_) {}
-      }
-
-      return {
-        candidates: allCandidates,
-        viewport: topViewport,
-        url: topUrl,
-        title: topTitle,
-      };
+      return await this.sendQuery("ZenVoiceNav:GetCandidates", { onlyVisible });
     } catch (e) {
-      console.error("[ZenVoiceNavParent] Error al obtener candidatos AOM multi-frame:", e);
+      console.error("[ZenVoiceNavParent] Error al obtener candidatos AOM:", e);
       return { candidates: [], error: e.message };
     }
-  }
-
-  /**
-   * Resuelve el actor adecuado (top o iframe) a partir de un targetId.
-   */
-  #resolveTargetActor(targetId) {
-    if (!targetId) return this;
-    const strId = String(targetId);
-    const match = strId.match(/^f(\d+)_(.+)$/);
-    if (match) {
-      const bcId = parseInt(match[1], 10);
-      const rawId = match[2];
-      const rootBc = this.browsingContext?.top || this.browsingContext;
-      const bcs = rootBc?.getAllBrowsingContextsInSubtree ? rootBc.getAllBrowsingContextsInSubtree() : [];
-      const foundBc = bcs.find(b => b.id === bcId);
-      if (foundBc) {
-        const actor = foundBc.currentWindowGlobal?.getActor("ZenVoiceNav");
-        if (actor) {
-          return { actor, realId: rawId };
-        }
-      }
-    }
-    return { actor: this, realId: targetId };
   }
 
   /**
@@ -2704,10 +2674,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async executeAction(targetId, actionIndex = 0, mode = null) {
     const resolvedMode = getVoiceNavMode(mode);
-    const { actor, realId } = this.#resolveTargetActor(targetId);
     try {
-      return await actor.sendQuery("ZenVoiceNav:ExecuteAction", {
-        targetId: String(realId),
+      return await this.sendQuery("ZenVoiceNav:ExecuteAction", {
+        targetId: String(targetId),
         actionIndex,
         mode: resolvedMode,
       });
@@ -2788,9 +2757,8 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       try {
         isDemo = Services.prefs.getBoolPref("zen.voicenav.demo_mode", false);
       } catch (_) {}
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:SetInputValue", {
-        targetId: realId ? String(realId) : null,
+      return await this.sendQuery("ZenVoiceNav:SetInputValue", {
+        targetId: targetId ? String(targetId) : null,
         value,
         append,
         submit,
@@ -2807,9 +2775,8 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async clearInput(targetId = null) {
     try {
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:ClearInput", {
-        targetId: realId ? String(realId) : null,
+      return await this.sendQuery("ZenVoiceNav:ClearInput", {
+        targetId: targetId ? String(targetId) : null,
       });
     } catch (e) {
       return { success: false, error: e.message };
@@ -2821,9 +2788,8 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async submitForm(targetId = null) {
     try {
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:SubmitForm", {
-        targetId: realId ? String(realId) : null,
+      return await this.sendQuery("ZenVoiceNav:SubmitForm", {
+        targetId: targetId ? String(targetId) : null,
       });
     } catch (e) {
       return { success: false, error: e.message };
@@ -2835,44 +2801,10 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
    */
   async pressEnter(targetId = null) {
     try {
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:PressEnter", {
-        targetId: realId ? String(realId) : null,
+      return await this.sendQuery("ZenVoiceNav:PressEnter", {
+        targetId: targetId ? String(targetId) : null,
       });
     } catch (e) {
-      return { success: false, error: e.message };
-    }
-  }
-
-  /**
-   * Selecciona una opción en un <select> nativo o combobox ARIA.
-   */
-  async selectOption(targetId, optionQuery) {
-    try {
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:SelectOption", {
-        targetId: realId ? String(realId) : null,
-        optionQuery,
-      });
-    } catch (e) {
-      console.error(`[ZenVoiceNavParent] Error en selectOption:`, e);
-      return { success: false, error: e.message };
-    }
-  }
-
-  /**
-   * Ajusta un slider o input numérico (range, number, role=slider).
-   */
-  async adjustRange(targetId, direction = "set", amount = 0) {
-    try {
-      const { actor, realId } = this.#resolveTargetActor(targetId);
-      return await actor.sendQuery("ZenVoiceNav:AdjustRange", {
-        targetId: realId ? String(realId) : null,
-        direction,
-        amount,
-      });
-    } catch (e) {
-      console.error(`[ZenVoiceNavParent] Error en adjustRange:`, e);
       return { success: false, error: e.message };
     }
   }
@@ -2958,11 +2890,11 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
              null;
     }
 
-    // 2.0. Dictado Inteligente en Campos de Formulario (Imperativo y Natural multilingüe: ES / EN / PT)
-    const DICT_VERBS = "(?:escribir|escribe|escriba|dictar|dicta|dicte|poner|pon|ponga|introducir|introduce|introduzca|tipear|tipea|teclear|teclea|type|write|input|enter|fill|digite|escreva|inserir)";
-    const fillWithMatch = transcript.match(/^(?:rellenar|rellena|rellene|llenar|llena|llene|fill|preencher)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\s_-]+?)\s+(?:con|with|com)\s+(.+)$/i);
-    const typeInEndMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+?)\\s+(?:en|in|into|no|na)\\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\\s_-]+)$`, "i"));
-    const typeInMidMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(?:en|in|into|no|na)\\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+|the\s+field\s+|the\s+|o\s+campo\s+)?([a-z0-9ñáéíóúç\\s_-]+?)\\s+(.+)$`, "i"));
+    // 2.0. Dictado Inteligente en Campos de Formulario (Imperativo y Natural)
+    const DICT_VERBS = "(?:escribir|escribe|escriba|dictar|dicta|dicte|poner|pon|ponga|introducir|introduce|introduzca|tipear|tipea|teclear|teclea)";
+    const fillWithMatch = transcript.match(/^(?:rellenar|rellena|rellene|llenar|llena|llene)\s+(?:el\s+campo\s+|el\s+|la\s+|campo\s+)?([a-z0-9ñáéíóú\s_-]+?)\s+con\s+(.+)$/i);
+    const typeInEndMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+?)\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+)$`, "i"));
+    const typeInMidMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+en\\s+(?:el\\s+campo\\s+|el\\s+|la\\s+|campo\\s+)?([a-z0-9ñáéíóú\\s_-]+?)\\s+(.+)$`, "i"));
     const directVerbMatch = transcript.match(new RegExp(`^${DICT_VERBS}\\s+(.+)$`, "i"));
 
     let dictTarget = null;
@@ -3108,91 +3040,6 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       }
     }
 
-    // 2.0.1. Selección de opción en Selects o Dropdowns ("elegir opción Argentina", "select country Spain", "pick option 2")
-    const selectOptionMatch = transcript.match(/^(?:elegir|elige|elija|seleccionar|selecciona|seleccione|escoger|escoge|escoja|marcar|marca|marque|select|choose|pick|escolher|selecione)\s+(?:la\s+|the\s+|a\s+)?(?:opci[oó]n\s+|option\s+|opção\s+)?([a-z0-9ñáéíóúç\s_-]+?)(?:\s+(?:en|in|into|no|na)\s+(?:el\s+|la\s+|the\s+|o\s+)?(?:select|men[uú]|desplegable|dropdown|campo|field)?\s*([a-z0-9ñáéíóúç\s_-]+))?$/i);
-    if (selectOptionMatch && selectOptionMatch[1]) {
-      const optionVal = selectOptionMatch[1].trim();
-      const selectFieldName = selectOptionMatch[2]?.trim();
-
-      // Si no es un comando de selección numérica (ej. no es "opción 2" si fue capturado como tal, aunque selectOption también maneja número de opción)
-      let selectTarget = null;
-      if (selectFieldName) {
-        selectTarget = findInputTarget(selectFieldName, candidates);
-      }
-      if (!selectTarget) {
-        // Buscar candidatos con rol combobox, listbox o select
-        const selects = candidates.filter(c =>
-          c.role_id === 7 || // Ci.nsIAccessibleRole.ROLE_COMBOBOX
-          c.role?.includes("combobox") ||
-          c.role?.includes("select") ||
-          c.role?.includes("listbox")
-        );
-        if (selects.length > 0) {
-          selectTarget = selects[0];
-        }
-      }
-
-      logDebug(`Comando de selección de opción: "${optionVal}" en target ${selectTarget?.id || 'activo'}`);
-      const selRes = await this.selectOption(selectTarget?.id || null, optionVal);
-      if (selRes && selRes.success) {
-        showNativeChromeHUD(topWin, {
-          success: true,
-          transcript,
-          label: `Seleccionado: ${selRes.selectedText || optionVal}`,
-          latencyMs: 0.05,
-        });
-        return {
-          success: true,
-          action: "select_option",
-          targetId: selectTarget?.id,
-          selectedText: selRes.selectedText || optionVal,
-        };
-      }
-    }
-
-    // 2.0.2. Ajuste de Sliders y Controles de Rango ("subir volumen a 80", "set volume to 80", "volume up 10")
-    const rangeMatch = transcript.match(/^(?:ajustar|ajusta|poner|pon|colocar|coloca|subir|sube|bajar|baja|aumentar|aumenta|reducir|reduce|set|adjust|increase|decrease|volume\s+up|volume\s+down)\s+(?:el\s+|la\s+|the\s+|o\s+)?([a-z0-9ñáéíóúç\s_-]+?)\s+(?:a|al|en|to|by)?\s*([0-9]{1,3})%?$/i);
-    if (rangeMatch && rangeMatch[1] && rangeMatch[2]) {
-      const rangeFieldName = rangeMatch[1].trim();
-      const targetNum = parseFloat(rangeMatch[2]);
-      const verb = transcript.trim().split(/\s+/)[0].toLowerCase();
-      let dir = "set";
-      if (/^(?:subir|sube|aumentar|aumenta|increase)$/i.test(verb) || transcript.toLowerCase().includes("volume up")) {
-        dir = "increment";
-      } else if (/^(?:bajar|baja|reducir|reduce|decrease)$/i.test(verb) || transcript.toLowerCase().includes("volume down")) {
-        dir = "decrement";
-      }
-
-      let sliderTarget = findInputTarget(rangeFieldName, candidates);
-      if (!sliderTarget) {
-        const sliders = candidates.filter(c =>
-          c.role?.includes("slider") ||
-          c.role?.includes("range") ||
-          c.role?.includes("spinbutton")
-        );
-        if (sliders.length > 0) {
-          sliderTarget = sliders[0];
-        }
-      }
-
-      logDebug(`Ajuste de slider: "${rangeFieldName}" -> ${targetNum} (${dir}) en target ${sliderTarget?.id || 'activo'}`);
-      const adjRes = await this.adjustRange(sliderTarget?.id || null, dir, targetNum);
-      if (adjRes && adjRes.success) {
-        showNativeChromeHUD(topWin, {
-          success: true,
-          transcript,
-          label: `Slider ajustado: ${adjRes.value}`,
-          latencyMs: 0.05,
-        });
-        return {
-          success: true,
-          action: "adjust_range",
-          targetId: sliderTarget?.id,
-          value: adjRes.value,
-        };
-      }
-    }
-
     if (candidates.length === 0) {
       logDebug(`Sin candidatos en pantalla. Abortando.`);
       showNativeChromeHUD(topWin, {
@@ -3292,40 +3139,10 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       });
     } catch (_) {}
 
-    // 5. Si requiere fallback a Sistema 2 (botón mudo), capturar recorte e inspeccionar con VLM
+    // 5. Si requiere fallback a Sistema 2 (botón mudo), capturar recorte
     if (decision.fallback_to_vlm && decision.matched_id) {
-      logDebug(`[ZenVoiceNavParent] Activando Sistema 2 para botón mudo ID: ${decision.matched_id}`);
+      console.log("[ZenVoiceNavParent] Activando Sistema 2 para botón mudo ID:", decision.matched_id);
       const crop = await this.captureNodeCrop(decision.matched_id);
-      if (crop && crop.success) {
-        logDebug(`[ZenVoiceNavParent] Recorte obtenido con éxito (${crop.width}x${crop.height}), consultando inspectVisual...`);
-        const vlmRes = await engine.inspectVisual(decision.matched_id, transcript, crop);
-        logDebug(`[ZenVoiceNavParent] Resultado VLM: ${JSON.stringify(vlmRes)}`);
-
-        if (vlmRes && vlmRes.matches_transcript && vlmRes.confidence >= 0.70) {
-          decision.confidence = vlmRes.confidence;
-          decision.action = vlmRes.suggested_action || "click";
-          decision.tier = "tier3_vlm_visual";
-          showNativeChromeHUD(topWin, {
-            success: true,
-            transcript,
-            label: `Tier 3 (VLM Visual) → ${decision.action}`,
-            latencyMs: decision.latency_ms,
-            tier: "tier3_vlm_visual",
-          });
-        } else if (vlmRes && !vlmRes.matches_transcript) {
-          logDebug(`[ZenVoiceNavParent] VLM descartó el botón por discrepancia visual con el comando.`);
-          decision.matched_id = null;
-          showNativeChromeHUD(topWin, {
-            success: false,
-            transcript,
-            label: "Descartado por inspección visual",
-            latencyMs: decision.latency_ms,
-            tier: "tier3_vlm_visual",
-          });
-        }
-      } else {
-        logDebug(`[ZenVoiceNavParent] Falló la captura del recorte gráfico para ID ${decision.matched_id}: ${crop?.error}`);
-      }
     }
 
     // 6. Ejecutar la acción si hubo un match con confianza suficiente

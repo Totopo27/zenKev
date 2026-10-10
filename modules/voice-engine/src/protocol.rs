@@ -42,10 +42,25 @@ fn default_top_k() -> usize {
     10
 }
 
+pub enum ControlAction {
+    StartMic,
+    StopMic,
+    ToggleMic,
+}
+
+/// Mensaje de control enviado desde Zen Browser (Parent Process) hacia el motor
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControlRequest {
+    #[serde(rename = "type")]
+    pub request_type: String, // "control"
+    pub action: String,       // "start_mic" | "stop_mic" | "toggle_mic"
+}
+
 /// Petición polimórfica recibida por stdin (NDJSON)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum EngineRequest {
+    Control(ControlRequest),
     InspectVisual(VisualInspectionRequest),
     Classify(ClassifyRequest),
 }

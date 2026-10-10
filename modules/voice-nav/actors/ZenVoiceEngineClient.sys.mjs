@@ -101,6 +101,7 @@ export class ZenVoiceEngineClient {
         environment: {
           RUST_BACKTRACE: "1",
           ZEN_VOICE_IPC_PATH: ipcPath,
+          ZEN_VOICE_ENGINE_LOG: PathUtils.join(PathUtils.tempDir, "zen_voice_engine.log"),
         },
         stderr: "stdout",
       });
@@ -477,6 +478,125 @@ export class ZenVoiceEngineClient {
     };
   }
 
+  #micActive = false;
+  #micProcess = null;
+
+  async #resolvePythonBin() {
+    try {
+      const pref = Services.prefs.getStringPref("zen.voicenav.python-path");
+      if (pref) return pref;
+    } catch (_) {}
+
+    const envPy = Services.env?.get("PYTHONW_BIN") || Services.env?.get("PYTHON_BIN");
+    if (envPy) return envPy;
+
+    try {
+      const foundW = await Subprocess.pathSearch("pythonw.exe");
+      if (foundW) return foundW;
+    } catch (_) {}
+    try {
+      const foundPy = await Subprocess.pathSearch("python.exe");
+      if (foundPy) return foundPy;
+    } catch (_) {}
+
+    const candidates = [
+      "C:\\Python314\\pythonw.exe",
+      "C:\\Python314\\python.exe",
+      "C:\\Python313\\pythonw.exe",
+      "C:\\Python312\\pythonw.exe",
+    ];
+    for (const c of candidates) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
+      } catch (_) {}
+    }
+    return "pythonw.exe";
+  }
+
+  async #resolveMicScript() {
+    try {
+      const pref = Services.prefs.getStringPref("zen.voicenav.mic-script");
+      if (pref) return pref;
+    } catch (_) {}
+
+    const candidates = [
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py",
+      PathUtils.join(PathUtils.profileDir, "zen_live_mic.py"),
+    ];
+    for (const c of candidates) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
+      } catch (_) {}
+    }
+    return "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py";
+  }
+
+  async startMicDaemon() {
+    this.#micActive = true;
+    logDebug("Iniciando captura de voz en vivo...");
+    const started = await this.ensureStarted();
+
+    if (this.#micProcess) {
+      logDebug("Demonio de micrófono ya está activo.");
+      return;
+    }
+
+    try {
+      const pythonBin = await this.#resolvePythonBin();
+      const scriptPath = await this.#resolveMicScript();
+      logDebug(`Lanzando demonio de micrófono con ${pythonBin} -> ${scriptPath}`);
+
+      this.#micProcess = await Subprocess.call({
+        command: pythonBin,
+        arguments: [scriptPath],
+        environment: {
+          PYTHONUNBUFFERED: "1",
+          ZEN_VOICE_PIPE_NAME: "\\\\.\\pipe\\zen_voice_ipc",
+        },
+      });
+      logDebug(`Demonio de micrófono iniciado con éxito (PID: ${this.#micProcess?.pid})`);
+    } catch (err) {
+      logDebug(`Aviso: Error lanzando python mic con Subprocess (${err}). Probando control nativo Rust...`);
+      if (started && this.#process?.stdin) {
+        try {
+          const payload = JSON.stringify({ type: "control", action: "start_mic" }) + "\n";
+          await this.#process.stdin.write(payload);
+        } catch (_) {}
+      }
+    }
+  }
+
+  stopMicDaemon() {
+    this.#micActive = false;
+    logDebug("Desactivando captura de micrófono...");
+    if (this.#micProcess) {
+      try {
+        this.#micProcess.kill();
+      } catch (_) {}
+      this.#micProcess = null;
+    }
+    if (this.#process?.stdin) {
+      try {
+        const payload = JSON.stringify({ type: "control", action: "stop_mic" }) + "\n";
+        this.#process.stdin.write(payload).catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  toggleMicDaemon() {
+    if (this.#micActive) {
+      this.stopMicDaemon();
+      return false;
+    } else {
+      this.startMicDaemon();
+      return true;
+    }
+  }
+
+  isMicActive() {
+    return this.#micActive;
+  }
+
   /**
    * Detiene el subproceso limpiamente.
    */
@@ -485,6 +605,7 @@ export class ZenVoiceEngineClient {
   }
 
   #cleanup() {
+    this.stopMicDaemon();
     if (this.#observerBound) {
       try {
         Services.obs.removeObserver(this, "quit-application-granted");

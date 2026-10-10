@@ -46,18 +46,16 @@ if exist "!LOCAL_ENGINE!" (
         echo [*] Copiando motor de voz de baja latencia a la carpeta de Zen Browser...
         copy /y "!LOCAL_ENGINE!" "!ZEN_DIR!zen-voice-engine.exe" >nul
     )
-) else (
-    echo [!] Aviso: zen-voice-engine.exe no encontrado en target\.
-    echo     Se utilizara el canal por defecto o IPC simulado.
 )
+copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!zen_live_mic.py" >nul
 
 REM 3. Iniciar el servidor local de inferencia Kev-4B v6 si no esta corriendo
 echo [*] Verificando servidor de inferencia Kev-4B v6 (puerto 8080)...
 powershell -NoProfile -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [*] Iniciando servidor puente de inferencia (scripts\serve_zenkev_bridge.py)...
+    echo [*] Iniciando servidor puente de inferencia: scripts\serve_zenkev_bridge.py...
     start "zenKev Inference Bridge" /min python "%~dp0scripts\serve_zenkev_bridge.py"
-    timeout /t 3 /nobreak >nul
+    ping -n 4 127.0.0.1 >nul
 ) else (
     echo [OK] Servidor de inferencia activo y respondiendo en http://127.0.0.1:8080.
 )
@@ -72,8 +70,17 @@ echo   2. Presiona [F2] para mostrar los badges numericos de AOM.
 echo ============================================================
 echo.
 
-echo [*] Abriendo Zen Browser...
-start "" "!ZEN_BIN!" "file:///%~dp0test-page.html"
+REM Limpiar instancias previas colgadas y locks huerfanos del perfil de Gecko
+taskkill /f /im zen.exe >nul 2>&1
+for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+    if exist "%%D\parent.lock" del /f /q "%%D\parent.lock" >nul 2>&1
+)
+
+set "TEST_URL=%~dp0test-page.html"
+set "TEST_URL=!TEST_URL:\=/!"
+
+echo [*] Abriendo Zen Browser (limpiando cache de arranque con -purgecaches)...
+start "" "!ZEN_BIN!" -purgecaches "file:///!TEST_URL!"
 
 REM 5. Ofrecer iniciar el microfono en vivo
 echo.

@@ -12,6 +12,12 @@
  */
 
 import { ZenVoiceEngineClient } from "./ZenVoiceEngineClient.sys.mjs";
+import {
+  EARCON_ERROR_URI,
+  EARCON_MUTE_URI,
+  EARCON_SUCCESS_URI,
+  EARCON_UNMUTE_URI,
+} from "./ZenVoiceEarconsData.sys.mjs";
 
 function logDebug(msg) {
   let isDebug = false;
@@ -165,8 +171,41 @@ export function playEarcon(type = "success", topWin = null) {
     } catch (_) {}
     if (!earconsEnabled) return;
 
+    // 1. Reproducción inmediata por Audio Element con URI base64 nativa en la ventana Chrome
+    try {
+      let soundUri = null;
+      if (type === "unmute") soundUri = EARCON_UNMUTE_URI;
+      else if (type === "mute") soundUri = EARCON_MUTE_URI;
+      else if (type === "success") soundUri = EARCON_SUCCESS_URI;
+      else if (type === "error" || type === "unrecognized") soundUri = EARCON_ERROR_URI;
+
+      if (soundUri && win.Audio) {
+        const audio = new win.Audio(soundUri);
+        audio.volume = 0.4;
+        audio.play().catch(() => {});
+        return;
+      }
+    } catch (_) {}
+
+    // 2. Respaldo por nsISound si está disponible
+    try {
+      if (Cc && Ci?.nsISound) {
+        const sound = Cc["@mozilla.org/sound;1"]?.createInstance(Ci.nsISound);
+        if (sound) {
+          if (type === "unmute" || type === "success") {
+            sound.beep();
+          } else {
+            sound.beep();
+          }
+        }
+      }
+    } catch (_) {}
+
     const AudioContextClass = win.AudioContext || win.webkitAudioContext;
-    if (!AudioContextClass) return;
+    if (!AudioContextClass) {
+      Services.beep?.();
+      return;
+    }
 
     if (!win._zenVoiceAudioCtx || win._zenVoiceAudioCtx.state === "closed") {
       win._zenVoiceAudioCtx = new AudioContextClass();
@@ -175,6 +214,11 @@ export function playEarcon(type = "success", topWin = null) {
     if (ctx.state === "suspended") {
       ctx.resume().catch(() => {});
     }
+
+    // Asegurar beep nativo accesible si WebAudio esta bloqueado por politicas de audio
+    try {
+      Services.beep?.();
+    } catch (_) {}
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -188,7 +232,7 @@ export function playEarcon(type = "success", topWin = null) {
       osc.type = "sine";
       osc.frequency.setValueAtTime(540, now);
       osc.frequency.exponentialRampToValueAtTime(840, now + 0.12);
-      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.setValueAtTime(0.12, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
       osc.start(now);
       osc.stop(now + 0.14);
@@ -197,28 +241,28 @@ export function playEarcon(type = "success", topWin = null) {
       osc.type = "triangle";
       osc.frequency.setValueAtTime(320, now);
       osc.frequency.exponentialRampToValueAtTime(210, now + 0.15);
-      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.setValueAtTime(0.10, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
       osc.start(now);
       osc.stop(now + 0.17);
     } else if (type === "mute") {
-      // Tono suave de apagado: 400Hz -> 280Hz (110ms)
+      // DESACTIVACION (Alt + V para apagar): Acorde descendente dual 520Hz -> 220Hz
       osc.type = "sine";
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.exponentialRampToValueAtTime(280, now + 0.1);
-      gain.gain.setValueAtTime(0.07, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 0.18);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
       osc.start(now);
-      osc.stop(now + 0.12);
+      osc.stop(now + 0.20);
     } else if (type === "unmute") {
-      // Tono brillante de encendido: 480Hz -> 740Hz (130ms)
+      // ACTIVACION (Alt + V para encender): Tono brillante ascendente 320Hz -> 880Hz
       osc.type = "sine";
-      osc.frequency.setValueAtTime(480, now);
-      osc.frequency.exponentialRampToValueAtTime(740, now + 0.12);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.16);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.start(now);
-      osc.stop(now + 0.14);
+      osc.stop(now + 0.18);
     }
   } catch (_) {}
 }
@@ -596,6 +640,8 @@ export function toggleNativeVoicePanel(topWin) {
 
   const doc = win.document;
   let panel = doc.getElementById("zenkev-native-glass-panel");
+  const engine = getVoiceEngineClient();
+
   if (panel) {
     if (panel.style.display === "none") {
       panel.style.display = "flex";
@@ -603,6 +649,7 @@ export function toggleNativeVoicePanel(topWin) {
       try {
         playEarcon("unmute", win);
       } catch (_) {}
+      engine.startMicDaemon().catch(() => {});
       win.requestAnimationFrame(() => {
         panel.style.opacity = "1";
         panel.style.transform = "translateY(0) scale(1)";
@@ -611,6 +658,7 @@ export function toggleNativeVoicePanel(topWin) {
       try {
         playEarcon("mute", win);
       } catch (_) {}
+      engine.stopMicDaemon();
       panel.style.opacity = "0";
       panel.style.transform = "translateY(-10px) scale(0.97)";
       const onTransitionEnd = (e) => {
@@ -626,11 +674,13 @@ export function toggleNativeVoicePanel(topWin) {
     return;
   }
 
-  // Reproducir sonido al abrir por primera vez
+  // Reproducir sonido al abrir por primera vez y encender microfono
   try {
     playEarcon("unmute", win);
   } catch (_) {}
+  engine.startMicDaemon().catch(() => {});
 
+  logDebug(`[ZenKev] Iniciando construcción de panel Glassmorphism...`);
   // Crear el panel flotante Glassmorphism en Chrome Window
   panel = doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
   panel.id = "zenkev-native-glass-panel";
@@ -917,6 +967,7 @@ export function toggleNativeVoicePanel(topWin) {
 
   const container = doc.getElementById("browser") || doc.documentElement;
   container.appendChild(panel);
+  logDebug(`[ZenKev] Panel native glass anexado a container: ${container.id || container.tagName || container.nodeName}`);
 
   updatePanelHistoryUI();
 
@@ -1058,6 +1109,20 @@ export function registerZenVoiceNavWidget() {
 
 try {
   registerZenVoiceNavWidget();
+} catch (_) {}
+
+// Registrar un observador del ciclo de vida de ventanas de navegador para asegurar
+// que el widget zen-voicenav-button esté siempre registrado y colocado al abrir la ventana.
+try {
+  Services.obs.addObserver({
+    observe(aSubject, aTopic) {
+      if (aTopic === "browser-delayed-startup-finished" || aTopic === "domwindowopened") {
+        try {
+          registerZenVoiceNavWidget();
+        } catch (_) {}
+      }
+    },
+  }, "browser-delayed-startup-finished");
 } catch (_) {}
 
 /**
