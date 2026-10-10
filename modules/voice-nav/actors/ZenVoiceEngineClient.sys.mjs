@@ -102,6 +102,7 @@ export class ZenVoiceEngineClient {
           RUST_BACKTRACE: "1",
           ZEN_VOICE_IPC_PATH: ipcPath,
           ZEN_VOICE_ENGINE_LOG: PathUtils.join(PathUtils.tempDir, "zen_voice_engine.log"),
+          ZEN_VOICE_KEV_ENDPOINT: Services.env?.get("ZEN_VOICE_KEV_ENDPOINT") || "http://127.0.0.1:8080/choice",
         },
         stderr: "stdout",
       });
