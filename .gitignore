@@ -18,6 +18,7 @@ Thumbs.db
 *.log
 *.ipc
 *.mp4
+*.zip
 
 # Tooling & Backups
 .atl/
