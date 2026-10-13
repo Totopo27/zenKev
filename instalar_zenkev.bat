@@ -10,13 +10,24 @@ echo   (Navegacion Local y Accesible por Voz para Zen Browser)
 echo ============================================================
 echo.
 
+REM 0. Verificar si se ejecuto directo dentro de un ZIP sin descomprimir
+if not exist "%~dp0scripts\patch_omni.py" (
+    echo [ERROR] No se encuentran los scripts de instalacion.
+    echo         Es probable que hayas abierto el archivo directamente desde el ZIP.
+    echo         POR FAVOR EXTRAE/DESCOMPRIME todo el contenido del .zip en una carpeta
+    echo         antes de ejecutar instalar_zenkev.bat.
+    echo.
+    pause
+    exit /b 1
+)
+
 REM 1. Deteccion automatica de Zen Browser
 set "ZEN_BIN="
-if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
 if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
 if exist "%PROGRAMFILES%\Zen Browser\zen.exe" set "ZEN_BIN=%PROGRAMFILES%\Zen Browser\zen.exe"
 if exist "C:\Program Files\Zen Browser\zen.exe" set "ZEN_BIN=C:\Program Files\Zen Browser\zen.exe"
 if exist "%ProgramFiles(x86)%\Zen Browser\zen.exe" set "ZEN_BIN=%ProgramFiles(x86)%\Zen Browser\zen.exe"
+if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
 
 if "!ZEN_BIN!"=="" (
     echo [!] No encontramos Zen Browser en las rutas tipicas.
