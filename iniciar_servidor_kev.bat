@@ -10,6 +10,17 @@ echo   (TypeSafe System One / NLI Decision Engine en Puerto 8080)
 echo ============================================================
 echo.
 
+REM 0. Verificar si se ejecuto directo dentro del ZIP sin descomprimir
+if not exist "%~dp0scripts\serve_zenkev_bridge.py" (
+    echo [ERROR] No se encuentran los scripts del servidor.
+    echo         Has abierto este archivo directamente dentro del ZIP.
+    echo         POR FAVOR EXTRAE/DESCOMPRIME todo el contenido del .zip en una carpeta
+    echo         antes de ejecutar este archivo.
+    echo.
+    pause
+    exit /b 1
+)
+
 REM 1. Deteccion de entorno WSL local (modo desarrollo con GPU en WSL)
 wsl --status >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
@@ -29,8 +40,45 @@ if %ERRORLEVEL% EQU 0 (
 REM 2. Entorno Windows Nativo (para beta testers)
 where.exe python >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python no esta disponible en el PATH del sistema.
-    echo         Por favor instala Python 3.11/3.12 y asegurate de marcar "Add to PATH".
+    echo [ERROR] Python no esta disponible en el PATH del sistema o esta activo el alias de Microsoft Store.
+    echo.
+    echo Requisitos de Python para el servidor de IA:
+    echo   - Instalar Python 3.12 o 3.13 (PyTorch y Kev no tienen soporte para Python 3.14/3.15).
+    echo   - Asegurate de marcar la casilla "Add python.exe to PATH" en el instalador.
+    echo   - Descarga recomendada: https://www.python.org/downloads/release/python-3.12-8/
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Verificar version de Python (requiere 3.11, 3.12 o 3.13)
+for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set "PY_VER=%%v"
+echo [*] Version de Python detectada: !PY_VER!
+
+python -c "import sys; sys.exit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] Version de Python incompatible: !PY_VER!
+    echo         PyTorch y el framework Kev requieren Python 3.11, 3.12 o 3.13.
+    echo         Versiones mas recientes como Python 3.14+ o 3.15 aun no tienen soporte ni binarios compilados (wheels) de PyTorch.
+    echo.
+    echo         Solucion: Instala Python 3.12 desde:
+    echo         https://www.python.org/downloads/release/python-3.12-8/
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Verificar Git (requerido para compilar/instalar dependencias de repositorios)
+where.exe git >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] Git no esta instalado o no se encuentra en el PATH.
+    echo         Para descargar e instalar el framework Kev es indispensable Git para Windows.
+    echo.
+    echo         Por favor descarga e instala Git desde:
+    echo         https://git-scm.com/download/win
+    echo.
     pause
     exit /b 1
 )
@@ -45,6 +93,12 @@ if %ERRORLEVEL% NEQ 0 (
     if %ERRORLEVEL% NEQ 0 (
         echo [*] Intentando instalacion de PyTorch para CPU estándar...
         pip install torch git+https://github.com/jaredpalmer/kev huggingface_hub
+        if !ERRORLEVEL! NEQ 0 (
+            echo.
+            echo [ERROR] No se pudieron instalar las dependencias de Kev. Revisa tu conexion o permisos.
+            pause
+            exit /b 1
+        )
     )
 )
 

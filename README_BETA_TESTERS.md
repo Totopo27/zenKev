@@ -6,17 +6,26 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 
 ## 🚀 Requisitos Previos
 
-1. **Zen Browser** instalado en tu computadora (Windows x64).
-2. **Python 3.10 o superior** instalado (asegúrate de marcar la opción *"Add python.exe to PATH"* durante la instalación).
-3. Un micrófono funcional conectado.
+### 1. Para Navegación por Voz Básica (Modo Predeterminado Ultra-rápido en CPU)
+* **Zen Browser** instalado en tu computadora (Windows x64).
+* **Python 3.10, 3.11, 3.12 o 3.13** instalado (asegúrate de marcar la casilla *"Add python.exe to PATH"*).
+* Un micrófono funcional conectado.
+* **Nota importante sobre Python**: No uses versiones en desarrollo o alpha (como 3.14 o 3.15). Recomendamos **Python 3.12**: [Descargar Python 3.12](https://www.python.org/downloads/release/python-3.12-8/).
+
+### 2. Para Inferencia Avanzada de IA (Modo Sistema 2 con Kev-4B v6)
+* **Python 3.12 o 3.13** (PyTorch no cuenta con soporte ni binarios compilados para versiones superiores a 3.13).
+* **Git para Windows** instalado y en el PATH: [Descargar Git para Windows](https://git-scm.com/download/win).
+  *(Requerido por pip para descargar e instalar el framework `kev` de inferencia).*
+* Conexión a Internet (para descargar las librerías de IA y el modelo desde Hugging Face en el primer inicio).
 
 ---
 
 ## ⚡ Instalación en 1 Clic
 
-1. Descarga el paquete de Release (`zenkev-beta.zip`) y descomprímelo en una carpeta de tu preferencia.
-2. Cierra Zen Browser si lo tienes abierto.
-3. Haz doble clic en el archivo **`instalar_zenkev.bat`**.
+1. Descarga el paquete de Release (`zenkev-v0.1-beta.zip`).
+2. **¡IMPORTANTE!** Haz clic derecho sobre el archivo `.zip` y selecciona **«Extraer todo...»** en una carpeta de tu preferencia. *(No ejecutes los archivos directamente dentro del visor de ZIP de Windows).*
+3. Cierra Zen Browser si lo tienes abierto.
+4. Haz doble clic en el archivo **`instalar_zenkev.bat`**.
    * El asistente detectará automáticamente tu navegador.
    * Instalará las dependencias de audio necesarias (`sounddevice`, `numpy`, `SpeechRecognition`).
    * Creará una copia de seguridad segura de tu archivo original `omni.ja`.
