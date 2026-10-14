@@ -38,24 +38,44 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 REM 2. Entorno Windows Nativo (para beta testers)
-where.exe python >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python no esta disponible en el PATH del sistema o esta activo el alias de Microsoft Store.
+set "PYTHON_EXE="
+python -c "exit(0)" >nul 2>&1
+if !ERRORLEVEL! EQU 0 set "PYTHON_EXE=python"
+if "!PYTHON_EXE!"=="" (
+    py -3 -c "exit(0)" >nul 2>&1
+    if !ERRORLEVEL! EQU 0 set "PYTHON_EXE=py -3"
+)
+if "!PYTHON_EXE!"=="" (
+    for /d %%P in ("%LOCALAPPDATA%\Programs\Python\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+    for /d %%P in ("C:\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+    for /d %%P in ("%PROGRAMFILES%\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+)
+if "!PYTHON_EXE!"=="" (
+    for /d %%U in ("C:\Users\*") do (
+        for /d %%P in ("%%~fU\AppData\Local\Programs\Python\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+    )
+)
+
+if "!PYTHON_EXE!"=="" (
+    echo ============================================================
+    echo [ERROR] No se encontro una instalacion funcional de Python.
+    echo         Windows solo detecto el alias vacio de Microsoft Store.
     echo.
     echo Requisitos de Python para el servidor de IA:
-    echo   - Instalar Python 3.12 o 3.13 (PyTorch y Kev no tienen soporte para Python 3.14/3.15).
+    echo   - Instalar Python 3.12 (recomendado):
+    echo     https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe
     echo   - Asegurate de marcar la casilla "Add python.exe to PATH" en el instalador.
-    echo   - Descarga recomendada: https://www.python.org/downloads/release/python-3.12-8/
+    echo ============================================================
     echo.
     pause
     exit /b 1
 )
 
 REM Verificar version de Python (requiere 3.11, 3.12 o 3.13)
-for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set "PY_VER=%%v"
+for /f "tokens=2 delims= " %%v in ('!PYTHON_EXE! --version 2^>^&1') do set "PY_VER=%%v"
 echo [*] Version de Python detectada: !PY_VER!
 
-python -c "import sys; sys.exit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)" >nul 2>&1
+!PYTHON_EXE! -c "import sys; sys.exit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [ERROR] Version de Python incompatible: !PY_VER!
@@ -84,15 +104,15 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [*] Verificando dependencias de Machine Learning (torch, kev, huggingface_hub)...
-python -c "import torch, kev, huggingface_hub" >nul 2>&1
+!PYTHON_EXE! -c "import torch, kev, huggingface_hub" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [!] Faltan dependencias de inferencia para Kev-4B.
     echo [*] Instalando dependencias de inferencia de PyTorch y Kev...
-    python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
-    python -m pip install git+https://github.com/jaredpalmer/kev huggingface_hub
+    !PYTHON_EXE! -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+    !PYTHON_EXE! -m pip install git+https://github.com/jaredpalmer/kev huggingface_hub
     if %ERRORLEVEL% NEQ 0 (
         echo [*] Intentando instalacion de PyTorch para CPU estándar...
-        python -m pip install torch git+https://github.com/jaredpalmer/kev huggingface_hub
+        !PYTHON_EXE! -m pip install torch git+https://github.com/jaredpalmer/kev huggingface_hub
         if !ERRORLEVEL! NEQ 0 (
             echo.
             echo [ERROR] No se pudieron instalar las dependencias de Kev. Revisa tu conexion o permisos.
@@ -102,10 +122,10 @@ if %ERRORLEVEL% NEQ 0 (
     )
 ) else (
     REM Si torch ya esta instalado, verificar compatibilidad basica con CUDA si existe GPU
-    python -c "import torch; exit(0 if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] <= 9 else 1)" >nul 2>&1
+    !PYTHON_EXE! -c "import torch; exit(0 if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] <= 9 else 1)" >nul 2>&1
     if !ERRORLEVEL! NEQ 0 (
         echo [!] AVISO: GPU de arquitectura muy reciente detectada. Si experimentas errores de kernel, actualiza PyTorch con:
-        echo     python -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
+        echo     !PYTHON_EXE! -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
     )
 )
 
@@ -117,5 +137,5 @@ echo.
 echo Presiona Ctrl+C para detener el servidor.
 echo ============================================================
 
-python "%~dp0scripts\serve_zenkev_bridge.py"
+!PYTHON_EXE! "%~dp0scripts\serve_zenkev_bridge.py"
 pause

@@ -10,17 +10,41 @@ echo   (Navegacion Local y Accesible por Voz para Zen Browser)
 echo ============================================================
 echo.
 
-REM 1. Deteccion automatica de Zen Browser
-set "ZEN_BIN="
-
-REM 1.1 Intentar deteccion inteligente profunda con Python (acceso directo en escritorio, registro, procesos, carpetas de usuario)
-if exist "%~dp0scripts\detect_zen.py" (
-    for /f "usebackq delims=" %%A in (`python "%~dp0scripts\detect_zen.py" 2^>nul`) do (
-        if exist "%%A" set "ZEN_BIN=%%A"
+REM 1. Deteccion de Python funcional
+set "PYTHON_EXE="
+python -c "exit(0)" >nul 2>&1
+if !ERRORLEVEL! EQU 0 set "PYTHON_EXE=python"
+if "!PYTHON_EXE!"=="" (
+    py -3 -c "exit(0)" >nul 2>&1
+    if !ERRORLEVEL! EQU 0 set "PYTHON_EXE=py -3"
+)
+if "!PYTHON_EXE!"=="" (
+    for /d %%P in ("%LOCALAPPDATA%\Programs\Python\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+    for /d %%P in ("C:\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+    for /d %%P in ("%PROGRAMFILES%\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
+)
+if "!PYTHON_EXE!"=="" (
+    for /d %%U in ("C:\Users\*") do (
+        for /d %%P in ("%%~fU\AppData\Local\Programs\Python\Python3*") do if exist "%%~fP\python.exe" set "PYTHON_EXE="%%~fP\python.exe""
     )
 )
 
-REM 1.2 Rutas fijas tradicionales de respaldo
+REM 2. Deteccion automatica de Zen Browser
+set "ZEN_BIN="
+
+REM 2.1 Intentar deteccion inteligente profunda con Python
+if exist "%~dp0scripts\detect_zen.py" if "!PYTHON_EXE!" NEQ "" (
+    set "DETECT_OUT=%TEMP%\zen_detect_%RANDOM%.txt"
+    !PYTHON_EXE! "%~dp0scripts\detect_zen.py" > "!DETECT_OUT!" 2>nul
+    if exist "!DETECT_OUT!" (
+        for /f "usebackq delims=" %%A in ("!DETECT_OUT!") do (
+            if exist "%%A" set "ZEN_BIN=%%A"
+        )
+        del "!DETECT_OUT!" >nul 2>&1
+    )
+)
+
+REM 2.2 Rutas fijas tradicionales de respaldo
 if "!ZEN_BIN!"=="" (
     if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
     if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
@@ -72,10 +96,12 @@ if exist "!LOCAL_ENGINE!" (
 copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
 
 REM 2.5. Verificar e instalar dependencias de microfono/audio de forma automatica
-python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [*] Instalando dependencias de audio de Python: sounddevice, numpy, SpeechRecognition...
-    python -m pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
+if "!PYTHON_EXE!" NEQ "" (
+    !PYTHON_EXE! -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
+    if !ERRORLEVEL! NEQ 0 (
+        echo [*] Instalando dependencias de audio de Python: sounddevice, numpy, SpeechRecognition...
+        !PYTHON_EXE! -m pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
+    )
 )
 
 REM 3. Iniciar el servidor local de inferencia Kev-4B v6 si no esta corriendo
@@ -83,7 +109,11 @@ echo [*] Verificando servidor de inferencia Kev-4B v6 (puerto 8080)...
 powershell -NoProfile -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [*] Iniciando servidor puente de inferencia: scripts\serve_zenkev_bridge.py...
-    start "zenKev Inference Bridge" /min python "%~dp0scripts\serve_zenkev_bridge.py"
+    if "!PYTHON_EXE!" NEQ "" (
+        start "zenKev Inference Bridge" /min !PYTHON_EXE! "%~dp0scripts\serve_zenkev_bridge.py"
+    ) else (
+        start "zenKev Inference Bridge" /min python "%~dp0scripts\serve_zenkev_bridge.py"
+    )
     ping -n 4 127.0.0.1 >nul
 ) else (
     echo [OK] Servidor de inferencia activo y respondiendo en http://127.0.0.1:8080.
@@ -113,8 +143,8 @@ for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
 )
 
 REM Parchear omni.ja si es necesario para asegurar modulos actualizados
-if exist "%~dp0scripts\patch_omni.py" (
-    python "%~dp0scripts\patch_omni.py" patch "!ZEN_DIR!" >nul 2>&1
+if exist "%~dp0scripts\patch_omni.py" if "!PYTHON_EXE!" NEQ "" (
+    !PYTHON_EXE! "%~dp0scripts\patch_omni.py" patch "!ZEN_DIR!" >nul 2>&1
 )
 
 set "TEST_URL=%~dp0test-page.html"
@@ -137,7 +167,11 @@ echo.
 set /p "START_MIC=[?] Deseas activar la escucha en vivo desde tu microfono fisico ahora? (S/N): "
 if /i "!START_MIC!"=="S" (
     echo [*] Iniciando captura de microfono manos libres...
-    python "%~dp0zen_live_mic.py"
+    if "!PYTHON_EXE!" NEQ "" (
+        !PYTHON_EXE! "%~dp0zen_live_mic.py"
+    ) else (
+        python "%~dp0zen_live_mic.py"
+    )
 ) else (
     echo [*] Puedes iniciar el microfono en cualquier momento ejecutando: python zen_live_mic.py
     echo [OK] Entorno de prueba listo.
