@@ -88,11 +88,11 @@ python -c "import torch, kev, huggingface_hub" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [!] Faltan dependencias de inferencia para Kev-4B.
     echo [*] Instalando dependencias de inferencia de PyTorch y Kev...
-    pip install torch --index-url https://download.pytorch.org/whl/cu124
-    pip install git+https://github.com/jaredpalmer/kev huggingface_hub
+    python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+    python -m pip install git+https://github.com/jaredpalmer/kev huggingface_hub
     if %ERRORLEVEL% NEQ 0 (
         echo [*] Intentando instalacion de PyTorch para CPU estándar...
-        pip install torch git+https://github.com/jaredpalmer/kev huggingface_hub
+        python -m pip install torch git+https://github.com/jaredpalmer/kev huggingface_hub
         if !ERRORLEVEL! NEQ 0 (
             echo.
             echo [ERROR] No se pudieron instalar las dependencias de Kev. Revisa tu conexion o permisos.
@@ -105,7 +105,7 @@ if %ERRORLEVEL% NEQ 0 (
     python -c "import torch; exit(0 if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] <= 9 else 1)" >nul 2>&1
     if !ERRORLEVEL! NEQ 0 (
         echo [!] AVISO: GPU de arquitectura muy reciente detectada. Si experimentas errores de kernel, actualiza PyTorch con:
-        echo     pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
+        echo     python -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
     )
 )
 

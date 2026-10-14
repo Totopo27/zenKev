@@ -79,7 +79,7 @@ echo [*] Verificando librerias de audio...
 python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [*] Instalando dependencias requeridas: sounddevice, numpy, SpeechRecognition...
-    pip install --quiet sounddevice numpy SpeechRecognition
+    python -m pip install --quiet sounddevice numpy SpeechRecognition
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Fallo la instalacion de dependencias con pip.
         pause

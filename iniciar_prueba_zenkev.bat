@@ -74,8 +74,8 @@ copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
 REM 2.5. Verificar e instalar dependencias de microfono/audio de forma automatica
 python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [*] Instalando dependencias de audio de Python (sounddevice, numpy, SpeechRecognition)...
-    pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
+    echo [*] Instalando dependencias de audio de Python: sounddevice, numpy, SpeechRecognition...
+    python -m pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
 )
 
 REM 3. Iniciar el servidor local de inferencia Kev-4B v6 si no esta corriendo
