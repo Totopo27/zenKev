@@ -89,6 +89,10 @@ if not exist "!ENGINE_SRC!" set "ENGINE_SRC=%~dp0modules\voice-engine\target\deb
 if exist "!ENGINE_SRC!" (
     echo [*] Copiando motor zen-voice-engine.exe a la carpeta de Zen Browser...
     copy /y "!ENGINE_SRC!" "!ZEN_DIR!zen-voice-engine.exe" >nul
+    for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+        copy /y "!ENGINE_SRC!" "%%D\zen-voice-engine.exe" >nul 2>&1
+        copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
+    )
 ) else (
     echo [!] Aviso: zen-voice-engine.exe no encontrado en el paquete.
 )
