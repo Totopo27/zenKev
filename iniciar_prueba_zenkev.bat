@@ -54,6 +54,13 @@ if exist "!LOCAL_ENGINE!" (
 )
 copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!zen_live_mic.py" >nul
 
+REM 2.5. Verificar e instalar dependencias de microfono/audio de forma automatica
+python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [*] Instalando dependencias de audio de Python (sounddevice, numpy, SpeechRecognition)...
+    pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
+)
+
 REM 3. Iniciar el servidor local de inferencia Kev-4B v6 si no esta corriendo
 echo [*] Verificando servidor de inferencia Kev-4B v6 (puerto 8080)...
 powershell -NoProfile -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2; exit 0 } catch { exit 1 }" >nul 2>&1

@@ -19,6 +19,24 @@ import os
 import sys
 import time
 import tempfile
+import subprocess
+
+# Auto-instalación transparente de dependencias críticas si faltan en el entorno
+_MISSING_DEPS = []
+for _mod, _pkg in [("sounddevice", "sounddevice"), ("numpy", "numpy"), ("speech_recognition", "SpeechRecognition")]:
+    try:
+        __import__(_mod)
+    except ImportError:
+        _MISSING_DEPS.append(_pkg)
+
+if _MISSING_DEPS:
+    print(f"[*] Instalando automaticamente dependencias de audio faltantes ({', '.join(_MISSING_DEPS)})...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet"] + _MISSING_DEPS)
+        print("[OK] Dependencias instaladas con exito.")
+    except Exception as _e:
+        print(f"[!] Error auto-instalando dependencias: {_e}")
+
 import numpy as np
 import sounddevice as sd
 import speech_recognition as sr
