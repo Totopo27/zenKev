@@ -47,6 +47,7 @@ if "!ZEN_BIN!"=="" (
 )
 
 for %%I in ("!ZEN_BIN!") do set "ZEN_DIR=%%~dpI"
+if "!ZEN_DIR:~-1!"=="\" set "ZEN_DIR=!ZEN_DIR:~0,-1!"
 
 echo [*] Zen Browser detectado en: !ZEN_BIN!
 echo.
@@ -58,9 +59,9 @@ if not exist "!LOCAL_ENGINE!" (
 )
 
 if exist "!LOCAL_ENGINE!" (
-    if not exist "!ZEN_DIR!zen-voice-engine.exe" (
+    if not exist "!ZEN_DIR!\zen-voice-engine.exe" (
         echo [*] Copiando motor de voz de baja latencia a la carpeta de Zen Browser...
-        copy /y "!LOCAL_ENGINE!" "!ZEN_DIR!zen-voice-engine.exe" >nul
+        copy /y "!LOCAL_ENGINE!" "!ZEN_DIR!\zen-voice-engine.exe" >nul
     )
     REM Copiar tambien a los perfiles de usuario para resolucion directa
     for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
@@ -68,7 +69,7 @@ if exist "!LOCAL_ENGINE!" (
         copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
     )
 )
-copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!zen_live_mic.py" >nul
+copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
 
 REM 2.5. Verificar e instalar dependencias de microfono/audio de forma automatica
 python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
@@ -122,8 +123,8 @@ set "TEST_URL=!TEST_URL:\=/!"
 echo [*] Configurando variables de entorno para motor de voz...
 if exist "!LOCAL_ENGINE!" (
     set "ZEN_VOICE_ENGINE_BIN=!LOCAL_ENGINE!"
-) else if exist "!ZEN_DIR!zen-voice-engine.exe" (
-    set "ZEN_VOICE_ENGINE_BIN=!ZEN_DIR!zen-voice-engine.exe"
+) else if exist "!ZEN_DIR!\zen-voice-engine.exe" (
+    set "ZEN_VOICE_ENGINE_BIN=!ZEN_DIR!\zen-voice-engine.exe"
 )
 set "ZEN_VOICE_KEV_ENDPOINT=http://127.0.0.1:8080/choice"
 set "ZEN_VOICE_PIPE_NAME=\\.\pipe\zen_voice_ipc"

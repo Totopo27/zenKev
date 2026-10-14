@@ -58,6 +58,7 @@ if "!ZEN_BIN!"=="" (
 )
 
 for %%I in ("!ZEN_BIN!") do set "ZEN_DIR=%%~dpI"
+if "!ZEN_DIR:~-1!"=="\" set "ZEN_DIR=!ZEN_DIR:~0,-1!"
 echo [OK] Zen Browser detectado en: !ZEN_BIN!
 echo.
 
@@ -66,7 +67,7 @@ where.exe python >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Python no esta instalado o no se encuentra en el PATH.
     echo         Por favor descarga e instala Python 3.10+ desde https://www.python.org/
-    echo         (Asegurate de marcar la casilla "Add python.exe to PATH").
+    echo         Importante: marca la casilla "Add python.exe to PATH".
     echo.
     pause
     exit /b 1
@@ -77,7 +78,7 @@ REM 3. Verificar dependencias de audio de Python (sounddevice, numpy, speech_rec
 echo [*] Verificando librerias de audio...
 python -c "import sounddevice, numpy, speech_recognition" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [*] Instalando dependencias requeridas (sounddevice, numpy, SpeechRecognition)...
+    echo [*] Instalando dependencias requeridas: sounddevice, numpy, SpeechRecognition...
     pip install --quiet sounddevice numpy SpeechRecognition
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Fallo la instalacion de dependencias con pip.
@@ -104,7 +105,7 @@ if not exist "!ENGINE_SRC!" set "ENGINE_SRC=%~dp0modules\voice-engine\target\deb
 
 if exist "!ENGINE_SRC!" (
     echo [*] Copiando motor zen-voice-engine.exe a la carpeta de Zen Browser...
-    copy /y "!ENGINE_SRC!" "!ZEN_DIR!zen-voice-engine.exe" >nul
+    copy /y "!ENGINE_SRC!" "!ZEN_DIR!\zen-voice-engine.exe" >nul
     for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
         copy /y "!ENGINE_SRC!" "%%D\zen-voice-engine.exe" >nul 2>&1
         copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
@@ -113,7 +114,7 @@ if exist "!ENGINE_SRC!" (
     echo [!] Aviso: zen-voice-engine.exe no encontrado en el paquete.
 )
 
-copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!zen_live_mic.py" >nul
+copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
 echo [OK] Archivos de audio y motor sincronizados.
 echo.
 

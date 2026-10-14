@@ -22,29 +22,49 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 
 ## ⚡ Instalación en 1 Clic
 
-1. Descarga el paquete de Release (`zenkev-v0.1-beta.zip`).
-2. **¡IMPORTANTE!** Haz clic derecho sobre el archivo `.zip` y selecciona **«Extraer todo...»** en una carpeta de tu preferencia. *(No ejecutes los archivos directamente dentro del visor de ZIP de Windows).*
+1. Descarga el paquete o clona el repositorio.
+2. **¡IMPORTANTE!** Si descargaste un `.zip`, haz clic derecho sobre el archivo y selecciona **«Extraer todo...»** en una carpeta de tu preferencia. *(No ejecutes los archivos directamente dentro del visor de ZIP de Windows).*
 3. Cierra Zen Browser si lo tienes abierto.
 4. Haz doble clic en el archivo **`instalar_zenkev.bat`**.
-   * El asistente detectará automáticamente tu navegador.
-   * Instalará las dependencias de audio necesarias (`sounddevice`, `numpy`, `SpeechRecognition`).
-   * Creará una copia de seguridad segura de tu archivo original `omni.ja`.
-   * Parcheará los actores de voz e iniciará Zen Browser con la caché limpia.
+   * El asistente detectará automáticamente tu navegador (incluso si lo tienes en el Escritorio o como versión portátil).
+   * Verificará e instalará automáticamente las dependencias de audio de Python necesarias.
+   * Configurará de forma autónoma las preferencias en tu perfil de Zen Browser.
+   * Creará una copia de seguridad segura de tu archivo original `omni.ja` y parcheará los módulos de voz.
 
 ---
 
 ## 🎙️ Cómo Usarlo en Zen Browser
 
-* **Activar / Silenciar el micrófono y panel**: Presiona **`Alt + V`** en cualquier momento dentro de Zen Browser.
-  * Escucharás un tono de audio de apertura.
-  * Aparecerá el panel flotante **zenKev Control** en la esquina superior derecha.
-* **Comandos de voz rápidos** (pruébalos hablando en voz alta):
-  * `"abrir pestaña"`
-  * `"cerrar pestaña"`
-  * `"abrir facebook"` / `"abrir wikipedia"` / `"abrir youtube"`
-  * `"inicio"` / `"configuración"`
-  * `"bajar"` / `"subir"` (desplazamiento)
-* **Badges Numéricos**: Presiona **`F2`** para mostrar números sobre todos los enlaces y botones en pantalla para activarlos por número.
+### Opción A: Probar con el Entorno Todo-en-Uno (Recomendado para Pruebas)
+Haz doble clic en **`iniciar_prueba_zenkev.bat`**:
+* Levantará el servidor de IA local si está disponible.
+* Abrirá Zen Browser con la página de pruebas interactiva `test-page.html`.
+* Te ofrecerá activar el micrófono en vivo en segundo plano.
+
+### Opción B: Uso Directo Diario en Zen Browser
+1. Abre Zen Browser normalmente.
+2. Ejecuta **`zen_live_mic.py`** (o presiona **`Alt + V`** dentro del navegador).
+3. Habla directamente por tu micrófono físico sin tocar el teclado ni el ratón.
+
+---
+
+## 🗣️ Comandos de Voz Disponibles (Prueba hablando en voz alta)
+
+### Navegación y Control del Navegador:
+* `"inicio"` (ir a la página de inicio)
+* `"configuración"` o `"ajustes"`
+* `"descargas"`
+* `"historial"`
+* `"nueva pestaña"` o `"abrir pestaña"`
+* `"cerrar pestaña"`
+* `"siguiente pestaña"` / `"pestaña anterior"`
+* `"abrir [sitio]"` (ej. *"abrir youtube"*, *"abrir wikipedia"*, *"abrir github"*)
+* `"buscar [consulta]"` (ej. *"buscar clima en Buenos Aires"*)
+* `"bajar"` / `"subir"` / `"arriba del todo"` / `"al fondo"` (scroll)
+
+### Interacción con la Página Web:
+* Puedes decir directamente el texto de cualquier botón o enlace visible (ej. *"guardar cambios"*, *"cancelar"*, *"comprar"*).
+* **Badges Numéricos**: Presiona **`F2`** para mostrar números sobre todos los elementos interactivos en pantalla y di simplemente el número (ej. *"3"*, *"el 5"*, *"hacer clic en 2"*).
 
 ---
 
@@ -60,7 +80,19 @@ El sistema cuenta con dos niveles de inteligencia integrados:
 Si quieres probar el razonamiento completo con el modelo fine-tuned **[Ttotopo27/zenkev-v6](https://huggingface.co/Ttotopo27/zenkev-v6)**:
 1. Haz doble clic en **`iniciar_servidor_kev.bat`**.
 2. El script levantará el puente de inferencia en el puerto 8080 (descargando automáticamente los pesos desde Hugging Face si no los tienes).
+   * *Compatibilidad garantizada*: Si tu tarjeta gráfica tiene una arquitectura muy nueva y tu versión de PyTorch es anterior, el servidor activa un **fallback automático a CPU** para garantizar que siga funcionando sin crashear.
 3. Abre Zen Browser normalmente: el navegador detectará automáticamente el servidor y delegará las decisiones complejas a Kev-4B v6.
+
+---
+
+## ❓ Preguntas Frecuentes / Solución de Problemas
+
+* **¿Por qué en el Administrador de Tareas no veo consumo de GPU/CPU al usar Kev-4B?**
+  Kev-4B v6 no es un chatbot que genera texto durante segundos. Es un clasificador NLI ultra-rápido que resuelve la intención en un único paso de ~15-30 milisegundos. En reposo consume 0% y durante la inferencia es tan veloz que no alcanza a mover el medidor de Windows.
+* **Al hacer clic en "Dictar" en la página de prueba me salía un aviso:**
+  La API Web Speech es exclusiva de navegadores basados en Chromium. Zen Browser utiliza el motor nativo **zen_live_mic.py** en segundo plano, por lo que no necesitas presionar botones en la web: habla directamente a tu micrófono.
+* **Si Zen Browser está instalado en el Escritorio o una carpeta no estándar:**
+  El instalador ahora detecta accesos directos, registros y carpetas en el Escritorio automáticamente. Si necesitas moverlo, simplemente arrastra el ejecutable `zen.exe` al instalador.
 
 ---
 
