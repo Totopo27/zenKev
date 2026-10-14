@@ -17,6 +17,37 @@ TARGET_ACTORS = {
     "actors/ZenVoiceEarconsData.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEarconsData.sys.mjs"),
 }
 
+ZEN_VOICE_ACTOR_ENTRY = """
+  ZenVoiceNav: {
+    parent: {
+      esModuleURI: "resource:///actors/ZenVoiceNavParent.sys.mjs",
+    },
+    child: {
+      esModuleURI: "resource:///actors/ZenVoiceNavChild.sys.mjs",
+      events: {
+        DOMContentLoaded: {},
+        pageshow: {},
+      },
+    },
+    allFrames: true,
+    messageManagerGroups: ["browsers"],
+    remoteTypes: ["web", "file", "privilegedabout"],
+    safeForUntrustedWebProcess: true,
+    enablePreference: "zen.voicenav.enabled",
+  },
+"""
+
+ZEN_PRELOAD_HOOK = """
+  try {
+    const { initZenVoiceNav } = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+    if (typeof initZenVoiceNav === "function") {
+      initZenVoiceNav(this);
+    }
+  } catch (e) {
+    console.error("[zenKev] Error initializing ZenVoiceNav in window:", e);
+  }
+"""
+
 def find_omni_path(target_path):
     """
     Localiza la ruta exacta a omni.ja en Windows, Linux y macOS (.app bundle).
@@ -70,13 +101,39 @@ def patch_omni(browser_dir):
         else:
             print(f"[WARNING] Local actor not found: {src_path}")
 
-    print(f"[*] Repackaging {omni_path} with {len(payloads)} zenKev actor(s)...")
+    # Use clean backup as source if present to guarantee idempotent patching
+    source_archive = backup_path if os.path.isfile(backup_path) else omni_path
+
+    print(f"[*] Repackaging {omni_path} with {len(payloads)} zenKev actor(s) and window startup hooks...")
     try:
-        with zipfile.ZipFile(omni_path, "r") as zin:
+        with zipfile.ZipFile(source_archive, "r") as zin:
             with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     if item.filename in payloads:
                         zout.writestr(item, payloads[item.filename])
+                    elif item.filename == "modules/ZenActorsManager.sys.mjs":
+                        raw_actors = zin.read(item.filename).decode("utf-8", errors="ignore")
+                        if "ZenVoiceNav:" not in raw_actors:
+                            marker = "let JSWINDOWACTORS = {"
+                            idx = raw_actors.find(marker)
+                            if idx != -1:
+                                raw_actors = raw_actors[:idx + len(marker)] + ZEN_VOICE_ACTOR_ENTRY + raw_actors[idx + len(marker):]
+                                print("[*] Registered ZenVoiceNav JSWindowActor in ZenActorsManager.sys.mjs")
+                        zout.writestr(item, raw_actors.encode("utf-8"))
+                    elif item.filename == "chrome/browser/content/browser/ZenPreloadedScripts.js":
+                        raw_preloaded = zin.read(item.filename).decode("utf-8", errors="ignore")
+                        if "ZenVoiceNavParent.sys.mjs" not in raw_preloaded:
+                            marker = "let scripts = ["
+                            idx = raw_preloaded.find(marker)
+                            if idx != -1:
+                                script_inject = '\n    "resource:///actors/ZenVoiceNavParent.sys.mjs",'
+                                raw_preloaded = raw_preloaded[:idx + len(marker)] + script_inject + raw_preloaded[idx + len(marker):]
+                        if "initZenVoiceNav" not in raw_preloaded:
+                            end_brace = raw_preloaded.rfind("}")
+                            if end_brace != -1:
+                                raw_preloaded = raw_preloaded[:end_brace] + ZEN_PRELOAD_HOOK + "\n}\n"
+                                print("[*] Injected initZenVoiceNav window startup hook in ZenPreloadedScripts.js")
+                        zout.writestr(item, raw_preloaded.encode("utf-8"))
                     else:
                         zout.writestr(item, zin.read(item.filename))
 
