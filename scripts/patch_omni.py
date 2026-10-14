@@ -17,14 +17,44 @@ TARGET_ACTORS = {
     "actors/ZenVoiceEarconsData.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEarconsData.sys.mjs"),
 }
 
-def patch_omni(browser_dir):
-    omni_path = os.path.join(browser_dir, "omni.ja")
-    backup_path = os.path.join(browser_dir, "omni.ja.original.bak")
-    temp_path = os.path.join(browser_dir, "omni.ja.patch.tmp")
+def find_omni_path(target_path):
+    """
+    Localiza la ruta exacta a omni.ja en Windows, Linux y macOS (.app bundle).
+    """
+    if os.path.isfile(target_path) and target_path.lower().endswith("omni.ja"):
+        return target_path
 
-    if not os.path.isfile(omni_path):
+    candidates = [
+        os.path.join(target_path, "omni.ja"),
+        os.path.join(target_path, "browser", "omni.ja"),
+        # macOS App Bundle locations
+        os.path.join(target_path, "Contents", "Resources", "browser", "omni.ja"),
+        os.path.join(target_path, "Contents", "Resources", "omni.ja"),
+        os.path.join(target_path, "Contents", "MacOS", "browser", "omni.ja"),
+        os.path.join(target_path, "Contents", "MacOS", "omni.ja"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+
+    # Búsqueda superficial (máx 3 niveles) por si la estructura varía
+    if os.path.isdir(target_path):
+        for root, dirs, files in os.walk(target_path):
+            if "omni.ja" in files:
+                return os.path.join(root, "omni.ja")
+            if root.count(os.sep) - target_path.count(os.sep) >= 3:
+                dirs.clear()
+
+    return None
+
+def patch_omni(browser_dir):
+    omni_path = find_omni_path(browser_dir)
+    if not omni_path or not os.path.isfile(omni_path):
         print(f"[ERROR] omni.ja not found in {browser_dir}")
         return False
+
+    backup_path = omni_path + ".original.bak"
+    temp_path = omni_path + ".patch.tmp"
 
     # Create safety backup if not already present
     if not os.path.isfile(backup_path):
@@ -72,8 +102,10 @@ def patch_omni(browser_dir):
         return False
 
 def restore_omni(browser_dir):
-    omni_path = os.path.join(browser_dir, "omni.ja")
-    backup_path = os.path.join(browser_dir, "omni.ja.original.bak")
+    omni_path = find_omni_path(browser_dir)
+    if not omni_path:
+        omni_path = os.path.join(browser_dir, "omni.ja")
+    backup_path = omni_path + ".original.bak"
 
     if not os.path.isfile(backup_path):
         print("[!] No original backup found to restore.")

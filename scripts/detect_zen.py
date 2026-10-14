@@ -109,7 +109,43 @@ def search_common_paths():
     return None
 
 def find_zen_bin():
-    # 1. Proceso activo
+    # 0. Detección específica para macOS (Darwin)
+    if sys.platform == "darwin":
+        home = os.path.expanduser("~")
+        mac_apps = [
+            "/Applications/Zen Browser.app",
+            "/Applications/Zen.app",
+            os.path.join(home, "Applications", "Zen Browser.app"),
+            os.path.join(home, "Applications", "Zen.app"),
+        ]
+        for app in mac_apps:
+            if os.path.isdir(app):
+                # Preferir el binario ejecutable si existe
+                bin_path = os.path.join(app, "Contents", "MacOS", "zen")
+                if os.path.isfile(bin_path):
+                    return bin_path
+                return app
+        return None
+
+    # 0.1 Detección para Linux
+    if sys.platform.startswith("linux"):
+        import shutil
+        for name in ("zen", "zen-browser"):
+            w = shutil.which(name)
+            if w: return w
+        home = os.path.expanduser("~")
+        linux_paths = [
+            "/opt/zen/zen",
+            "/opt/zen-browser/zen",
+            os.path.join(home, ".local", "share", "zen", "zen"),
+            os.path.join(home, ".local", "bin", "zen"),
+        ]
+        for p in linux_paths:
+            if os.path.isfile(p):
+                return p
+        return None
+
+    # 1. Proceso activo (Windows)
     p = get_running_zen()
     if p: return p
 

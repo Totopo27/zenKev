@@ -7,14 +7,16 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 ## 🚀 Requisitos Previos
 
 ### 1. Para Navegación por Voz Básica (Modo Predeterminado Ultra-rápido en CPU)
-* **Zen Browser** instalado en tu computadora (Windows x64).
-* **Python 3.10, 3.11, 3.12 o 3.13** instalado (asegúrate de marcar la casilla *"Add python.exe to PATH"*).
+* **Zen Browser** instalado en tu computadora (Windows x64 o macOS Apple Silicon/Intel).
+* **Python 3.10, 3.11, 3.12 o 3.13** instalado:
+  * En Windows: asegúrate de marcar la casilla *"Add python.exe to PATH"*.
+  * En macOS: instalado mediante [python.org](https://www.python.org/) o con Homebrew (`brew install python`).
 * Un micrófono funcional conectado.
 * **Nota importante sobre Python**: No uses versiones en desarrollo o alpha (como 3.14 o 3.15). Recomendamos **Python 3.12**: [Descargar Python 3.12](https://www.python.org/downloads/release/python-3.12-8/).
 
 ### 2. Para Inferencia Avanzada de IA (Modo Sistema 2 con Kev-4B v6)
 * **Python 3.12 o 3.13** (PyTorch no cuenta con soporte ni binarios compilados para versiones superiores a 3.13).
-* **Git para Windows** instalado y en el PATH: [Descargar Git para Windows](https://git-scm.com/download/win).
+* **Git** instalado y en el PATH: [Descargar Git](https://git-scm.com/download/).
   *(Requerido por pip para descargar e instalar el framework `kev` de inferencia).*
 * Conexión a Internet (para descargar las librerías de IA y el modelo desde Hugging Face en el primer inicio).
 
@@ -22,11 +24,16 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 
 ## ⚡ Instalación en 1 Clic
 
-1. Descarga el paquete o clona el repositorio.
-2. **¡IMPORTANTE!** Si descargaste un `.zip`, haz clic derecho sobre el archivo y selecciona **«Extraer todo...»** en una carpeta de tu preferencia. *(No ejecutes los archivos directamente dentro del visor de ZIP de Windows).*
+1. Descarga el paquete o clona el repositorio:
+   ```bash
+   git clone https://github.com/Totopo27/zenKev.git
+   ```
+2. **¡IMPORTANTE!** Si descargaste un `.zip`, descomprímelo en una carpeta de tu preferencia antes de ejecutar.
 3. Cierra Zen Browser si lo tienes abierto.
-4. Haz doble clic en el archivo **`instalar_zenkev.bat`**.
-   * El asistente detectará automáticamente tu navegador (incluso si lo tienes en el Escritorio o como versión portátil).
+4. **Ejecutar el instalador en 1 clic**:
+   * **En Windows**: Haz doble clic en **`instalar_zenkev.bat`**.
+   * **En macOS**: Haz doble clic en **`instalar_zenkev.command`** en Finder (o ejecuta `./instalar_zenkev.command` desde la Terminal).
+   * El asistente detectará automáticamente tu navegador (en `/Applications` en Mac o en `Program Files`/Escritorio en Windows).
    * Verificará e instalará automáticamente las dependencias de audio de Python necesarias.
    * Configurará de forma autónoma las preferencias en tu perfil de Zen Browser.
    * Creará una copia de seguridad segura de tu archivo original `omni.ja` y parcheará los módulos de voz.
@@ -36,7 +43,8 @@ Bienvenido a la versión Beta de **zenKev Voice Navigator**, el sistema de naveg
 ## 🎙️ Cómo Usarlo en Zen Browser
 
 ### Opción A: Probar con el Entorno Todo-en-Uno (Recomendado para Pruebas)
-Haz doble clic en **`iniciar_prueba_zenkev.bat`**:
+* **En Windows**: Haz doble clic en **`iniciar_prueba_zenkev.bat`**.
+* **En macOS**: Haz doble clic en **`iniciar_prueba_zenkev.command`**.
 * Levantará el servidor de IA local si está disponible.
 * Abrirá Zen Browser con la página de pruebas interactiva `test-page.html`.
 * Te ofrecerá activar el micrófono en vivo en segundo plano.

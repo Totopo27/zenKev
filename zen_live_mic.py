@@ -159,11 +159,23 @@ def send_named_pipe(pipe_name: str, message: str) -> bool:
         return True
     return _send_named_pipe_open(pipe_name, message)
 
+def send_unix_socket(socket_path: str, message: str) -> bool:
+    import socket
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(socket_path)
+            s.sendall((message + "\n").encode("utf-8"))
+        return True
+    except Exception:
+        return False
+
 def send_voice_command(transcript: str) -> bool:
     """
     Envía el comando transcrito al motor zen-voice-engine:
     1. En Windows, intenta prioritariamente por Named Pipe (interrupción de kernel, cero latencia de disco).
-    2. Si el Named Pipe no está disponible o falla, realiza fallback automático al archivo IPC.
+    2. En Unix/macOS, intenta prioritariamente por Unix Domain Socket (/tmp/zen_voice_ipc.sock).
+    3. Si el canal reactivo no está disponible o falla, realiza fallback automático al archivo IPC.
     """
     if sys.platform == "win32":
         try:
@@ -174,6 +186,14 @@ def send_voice_command(transcript: str) -> bool:
                 log_event(f"⚠️ Named Pipe ({PIPE_NAME}) no disponible. Fallback automático a archivo IPC...")
         except Exception as e:
             log_event(f"⚠️ Error conectando al Named Pipe: {e}. Fallback a archivo IPC...")
+    else:
+        socket_path = os.environ.get("ZEN_VOICE_SOCKET_PATH", "/tmp/zen_voice_ipc.sock")
+        try:
+            if os.path.exists(socket_path) and send_unix_socket(socket_path, transcript):
+                log_event(f"🚀 Comando \"{transcript}\" enviado vía Unix Socket ({socket_path}) [0-latency]")
+                return True
+        except Exception:
+            pass
 
     # Fallback automático a archivo IPC
     try:

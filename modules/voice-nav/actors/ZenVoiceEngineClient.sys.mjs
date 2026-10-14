@@ -85,8 +85,16 @@ export class ZenVoiceEngineClient {
       } catch (_) {}
     }
 
+    const isWindows = Services.appinfo?.OS === "WINNT";
+    const binName = isWindows ? "zen-voice-engine.exe" : "zen-voice-engine";
+
     const candidates = [
+      PathUtils.join(PathUtils.profileDir, binName),
       PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe"),
+      PathUtils.join(PathUtils.profileDir, "zen-voice-engine"),
+      "/Applications/Zen Browser.app/Contents/MacOS/zen-voice-engine",
+      "/Applications/Zen.app/Contents/MacOS/zen-voice-engine",
+      "/Applications/Zen Browser.app/Contents/Resources/zen-voice-engine",
       "D:\\DocumentosDiscoD\\Zen\\zenKev\\modules\\voice-engine\\target\\release\\zen-voice-engine.exe",
       "D:\\DocumentosDiscoD\\Zen\\zenKev\\modules\\voice-engine\\target\\debug\\zen-voice-engine.exe",
       "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen-voice-engine.exe",
@@ -100,7 +108,7 @@ export class ZenVoiceEngineClient {
       } catch (_) {}
     }
 
-    return this.#enginePath || PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
+    return this.#enginePath || PathUtils.join(PathUtils.profileDir, binName);
   }
 
   #registerShutdownObserver() {
@@ -142,24 +150,67 @@ export class ZenVoiceEngineClient {
       const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
                       PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
 
+      const isWindows = Services.appinfo?.OS === "WINNT";
+      const envVars = {
+        RUST_BACKTRACE: "1",
+        ZEN_VOICE_IPC_PATH: ipcPath,
+        ZEN_VOICE_ENGINE_LOG: PathUtils.join(PathUtils.tempDir, "zen_voice_engine.log"),
+        ZEN_VOICE_KEV_ENDPOINT: Services.env?.get("ZEN_VOICE_KEV_ENDPOINT") || "http://127.0.0.1:8080/choice",
+      };
+      if (isWindows) {
+        envVars.ZEN_VOICE_PIPE_NAME = "\\\\.\\pipe\\zen_voice_ipc";
+      } else {
+        envVars.ZEN_VOICE_SOCKET_PATH = "/tmp/zen_voice_ipc.sock";
+      }
+
       this.#process = await Subprocess.call({
         command: this.#enginePath,
         arguments: ["--ipc", ipcPath],
-        environment: {
-          RUST_BACKTRACE: "1",
-          ZEN_VOICE_IPC_PATH: ipcPath,
-          ZEN_VOICE_ENGINE_LOG: PathUtils.join(PathUtils.tempDir, "zen_voice_engine.log"),
-          ZEN_VOICE_KEV_ENDPOINT: Services.env?.get("ZEN_VOICE_KEV_ENDPOINT") || "http://127.0.0.1:8080/choice",
-        },
+        environment: envVars,
         stderr: "stdout",
       });
 
+      this.#stopFallbackFileWatcher();
       this.#startReadLoop();
       return true;
     } catch (e) {
       console.warn("[ZenVoiceEngineClient] Subproceso de voz no disponible o falló al iniciar:", e?.message || e);
       this.#process = null;
+      this.#startFallbackFileWatcher();
       return false;
+    }
+  }
+
+  #filePollerTimer = null;
+  #startFallbackFileWatcher() {
+    if (this.#filePollerTimer) return;
+    const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
+                    PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
+
+    logDebug(`Iniciando observador de archivo IPC de respaldo en: ${ipcPath}`);
+    this.#filePollerTimer = setInterval(async () => {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(ipcPath))) {
+          const content = await IOUtils.readUTF8(ipcPath);
+          if (content && content.trim()) {
+            await IOUtils.writeUTF8(ipcPath, "");
+            const lines = content.split("\n");
+            for (const line of lines) {
+              const transcript = line.trim();
+              if (transcript) {
+                this.#dispatchLiveVoiceCommand(transcript);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }, 80);
+  }
+
+  #stopFallbackFileWatcher() {
+    if (this.#filePollerTimer) {
+      clearInterval(this.#filePollerTimer);
+      this.#filePollerTimer = null;
     }
   }
 
@@ -192,117 +243,137 @@ export class ZenVoiceEngineClient {
             // Si es un comando de voz transcrito recibido en tiempo real por el motor
             if (parsed.voice_command || parsed.type === "transcription_ready") {
               const transcript = parsed.transcript || parsed.voice_command || parsed.text;
-              logDebug(`Comando en vivo recibido: "${transcript}"`);
-
-              // Si el botón está silenciado y no es orden de activación explícita, ignorar
-              const isMuted = Services.zenVoiceNavButtonState === "muted";
-              const isUnmuteIntent = /^(?:activar|reanudar|desmutear)\s+voz$/i.test(transcript.trim());
-              if (isMuted && !isUnmuteIntent) {
-                logDebug(`Comando ignorado: la navegación por voz está silenciada.`);
-                continue;
-              }
-
-              // Notificar estado al botón de navegación
-              if (typeof Services.zenSetVoiceState === "function") {
-                Services.zenSetVoiceState("processing");
-              }
-
-              // Notificar al HUD nativo de la ventana activa
-              const activeWin = Services.wm?.getMostRecentWindow("navigator:browser");
-              if (activeWin && typeof Services.zenShowVoiceHUD === "function") {
-                Services.zenShowVoiceHUD(activeWin, {
-                  success: true,
-                  transcript,
-                  label: "Procesando voz...",
-                });
-              }
-              try {
-                const windows = Services.wm.getEnumerator("navigator:browser");
-                let dispatched = false;
-                let count = 0;
-                while (windows.hasMoreElements()) {
-                  count++;
-                  const win = windows.getNext();
-                  if (!win || win.closed) continue;
-
-                  const browser = win.gBrowser?.selectedBrowser;
-                  const uri = browser?.currentURI?.spec || "sin uri";
-                  logDebug(`Ventana #${count} URL activa: ${uri}`);
-
-                  const cwg = browser?.browsingContext?.currentWindowGlobal;
-                  let actor = null;
-                  try {
-                    actor = cwg?.getActor("ZenVoiceNav");
-                  } catch (errActor) {
-                    logDebug(`Error al llamar getActor("ZenVoiceNav"): ${errActor}`);
-                  }
-
-                  if (actor) {
-                    logDebug(`Actor ZenVoiceNav encontrado en ventana #${count}. Despachando processVoiceCommand...`);
-                    actor.processVoiceCommand(transcript).catch((e) => {
-                      logDebug(`Error en actor.processVoiceCommand: ${e}`);
-                    }).finally(() => {
-                      if (typeof Services.zenSetVoiceState === "function") {
-                        Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
-                      }
-                    });
-                    dispatched = true;
-                    break;
-                  } else if (win.gZenVoiceNav) {
-                    logDebug(`gZenVoiceNav encontrado en ventana #${count}. Despachando...`);
-                    win.gZenVoiceNav.processCommand(transcript).catch((e) => {
-                      logDebug(`Error en gZenVoiceNav.processCommand: ${e}`);
-                    }).finally(() => {
-                      if (typeof Services.zenSetVoiceState === "function") {
-                        Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
-                      }
-                    });
-                    dispatched = true;
-                    break;
-                  } else {
-                    logDebug(`Ventana #${count} NO tiene actor ni gZenVoiceNav. Intentando inicialización directa...`);
-                    try {
-                      const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
-                      if (mod?.initZenVoiceNav) {
-                        mod.initZenVoiceNav(win);
-                      }
-                      if (win.gZenVoiceNav?.processCommand) {
-                        win.gZenVoiceNav.processCommand(transcript).catch((e) => {
-                          logDebug(`Error en fallback gZenVoiceNav: ${e}`);
-                        });
-                        dispatched = true;
-                        break;
-                      } else if (mod?.executeGlobalVoiceCommand) {
-                        logDebug(`Despachando comando directamente a executeGlobalVoiceCommand en ventana #${count}...`);
-                        mod.executeGlobalVoiceCommand(transcript, win, null).catch((e) => {
-                          logDebug(`Error en executeGlobalVoiceCommand directo: ${e}`);
-                        });
-                        dispatched = true;
-                        break;
-                      }
-                    } catch (errDirect) {
-                      logDebug(`Error en inicializacion directa de ventana: ${errDirect}`);
-                    }
-                  }
-                }
-                if (!dispatched) {
-                  logDebug(`AVISO: Ninguna ventana activa en enumerador. Intentando ventana principal de Services.wm...`);
-                  const fallbackWin = Services.wm?.getMostRecentWindow("navigator:browser");
-                  if (fallbackWin) {
-                    try {
-                      const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
-                      if (mod?.executeGlobalVoiceCommand) {
-                        mod.executeGlobalVoiceCommand(transcript, fallbackWin, null).catch(() => {});
-                        dispatched = true;
-                      }
-                    } catch (_) {}
-                  }
-                }
-              } catch (e) {
-                logDebug(`Excepción al despachar comando: ${e}`);
-              }
+              this.#dispatchLiveVoiceCommand(transcript);
               continue;
             }
+
+            const nextResolver = this.#pendingRequests.shift();
+            if (nextResolver) {
+              nextResolver.resolve(parsed);
+            }
+          } catch (err) {
+            console.warn("[ZenVoiceEngineClient] Mensaje no parseable desde el motor:", trimmed, err);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[ZenVoiceEngineClient] Error en loop de lectura Stdio:", e);
+    } finally {
+      this.#cleanup();
+    }
+  }
+
+  async #dispatchLiveVoiceCommand(transcript) {
+    logDebug(`Comando en vivo recibido: "${transcript}"`);
+
+    // Si el botón está silenciado y no es orden de activación explícita, ignorar
+    const isMuted = Services.zenVoiceNavButtonState === "muted";
+    const isUnmuteIntent = /^(?:activar|reanudar|desmutear)\s+voz$/i.test(transcript.trim());
+    if (isMuted && !isUnmuteIntent) {
+      logDebug(`Comando ignorado: la navegación por voz está silenciada.`);
+      return;
+    }
+
+    // Notificar estado al botón de navegación
+    if (typeof Services.zenSetVoiceState === "function") {
+      Services.zenSetVoiceState("processing");
+    }
+
+    // Notificar al HUD nativo de la ventana activa
+    const activeWin = Services.wm?.getMostRecentWindow("navigator:browser");
+    if (activeWin && typeof Services.zenShowVoiceHUD === "function") {
+      Services.zenShowVoiceHUD(activeWin, {
+        success: true,
+        transcript,
+        label: "Procesando voz...",
+      });
+    }
+    try {
+      const windows = Services.wm.getEnumerator("navigator:browser");
+      let dispatched = false;
+      let count = 0;
+      while (windows.hasMoreElements()) {
+        count++;
+        const win = windows.getNext();
+        if (!win || win.closed) continue;
+
+        const browser = win.gBrowser?.selectedBrowser;
+        const uri = browser?.currentURI?.spec || "sin uri";
+        logDebug(`Ventana #${count} URL activa: ${uri}`);
+
+        const cwg = browser?.browsingContext?.currentWindowGlobal;
+        let actor = null;
+        try {
+          actor = cwg?.getActor("ZenVoiceNav");
+        } catch (errActor) {
+          logDebug(`Error al llamar getActor("ZenVoiceNav"): ${errActor}`);
+        }
+
+        if (actor) {
+          logDebug(`Actor ZenVoiceNav encontrado en ventana #${count}. Despachando processVoiceCommand...`);
+          actor.processVoiceCommand(transcript).catch((e) => {
+            logDebug(`Error en actor.processVoiceCommand: ${e}`);
+          }).finally(() => {
+            if (typeof Services.zenSetVoiceState === "function") {
+              Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+            }
+          });
+          dispatched = true;
+          break;
+        } else if (win.gZenVoiceNav) {
+          logDebug(`gZenVoiceNav encontrado en ventana #${count}. Despachando...`);
+          win.gZenVoiceNav.processCommand(transcript).catch((e) => {
+            logDebug(`Error en gZenVoiceNav.processCommand: ${e}`);
+          }).finally(() => {
+            if (typeof Services.zenSetVoiceState === "function") {
+              Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+            }
+          });
+          dispatched = true;
+          break;
+        } else {
+          logDebug(`Ventana #${count} NO tiene actor ni gZenVoiceNav. Intentando inicialización directa...`);
+          try {
+            const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+            if (mod?.initZenVoiceNav) {
+              mod.initZenVoiceNav(win);
+            }
+            if (win.gZenVoiceNav?.processCommand) {
+              win.gZenVoiceNav.processCommand(transcript).catch((e) => {
+                logDebug(`Error en fallback gZenVoiceNav: ${e}`);
+              });
+              dispatched = true;
+              break;
+            } else if (mod?.executeGlobalVoiceCommand) {
+              logDebug(`Despachando comando directamente a executeGlobalVoiceCommand en ventana #${count}...`);
+              mod.executeGlobalVoiceCommand(transcript, win, null).catch((e) => {
+                logDebug(`Error en executeGlobalVoiceCommand directo: ${e}`);
+              });
+              dispatched = true;
+              break;
+            }
+          } catch (errDirect) {
+            logDebug(`Error en inicializacion directa de ventana: ${errDirect}`);
+          }
+        }
+      }
+      if (!dispatched) {
+        logDebug(`AVISO: Ninguna ventana activa en enumerador. Intentando ventana principal de Services.wm...`);
+        const fallbackWin = Services.wm?.getMostRecentWindow("navigator:browser");
+        if (fallbackWin) {
+          try {
+            const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+            if (mod?.executeGlobalVoiceCommand) {
+              mod.executeGlobalVoiceCommand(transcript, fallbackWin, null).catch(() => {});
+              dispatched = true;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      logDebug(`Excepción al despachar comando: ${e}`);
+    }
+  }
 
             const nextResolver = this.#pendingRequests.shift();
             if (nextResolver) {
@@ -575,11 +646,22 @@ export class ZenVoiceEngineClient {
       if (foundW) return foundW;
     } catch (_) {}
     try {
+      const foundPy3 = await Subprocess.pathSearch("python3");
+      if (foundPy3) return foundPy3;
+    } catch (_) {}
+    try {
       const foundPy = await Subprocess.pathSearch("python.exe");
       if (foundPy) return foundPy;
     } catch (_) {}
+    try {
+      const foundP = await Subprocess.pathSearch("python");
+      if (foundP) return foundP;
+    } catch (_) {}
 
     const candidates = [
+      "/opt/homebrew/bin/python3",
+      "/usr/local/bin/python3",
+      "/usr/bin/python3",
       "C:\\Python314\\pythonw.exe",
       "C:\\Python314\\python.exe",
       "C:\\Python313\\pythonw.exe",
@@ -590,7 +672,7 @@ export class ZenVoiceEngineClient {
         if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
       } catch (_) {}
     }
-    return "pythonw.exe";
+    return Services.appinfo?.OS === "WINNT" ? "pythonw.exe" : "python3";
   }
 
   async #resolveMicScript() {
@@ -600,15 +682,17 @@ export class ZenVoiceEngineClient {
     } catch (_) {}
 
     const candidates = [
-      "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py",
       PathUtils.join(PathUtils.profileDir, "zen_live_mic.py"),
+      "/Applications/Zen Browser.app/Contents/Resources/zen_live_mic.py",
+      "/Applications/Zen.app/Contents/Resources/zen_live_mic.py",
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py",
     ];
     for (const c of candidates) {
       try {
         if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) return c;
       } catch (_) {}
     }
-    return "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen_live_mic.py";
+    return PathUtils.join(PathUtils.profileDir, "zen_live_mic.py");
   }
 
   async startMicDaemon() {
@@ -626,13 +710,20 @@ export class ZenVoiceEngineClient {
       const scriptPath = await this.#resolveMicScript();
       logDebug(`Lanzando demonio de micrófono con ${pythonBin} -> ${scriptPath}`);
 
+      const isWindows = Services.appinfo?.OS === "WINNT";
+      const envVars = {
+        PYTHONUNBUFFERED: "1",
+      };
+      if (isWindows) {
+        envVars.ZEN_VOICE_PIPE_NAME = "\\\\.\\pipe\\zen_voice_ipc";
+      } else {
+        envVars.ZEN_VOICE_SOCKET_PATH = "/tmp/zen_voice_ipc.sock";
+      }
+
       this.#micProcess = await Subprocess.call({
         command: pythonBin,
         arguments: [scriptPath],
-        environment: {
-          PYTHONUNBUFFERED: "1",
-          ZEN_VOICE_PIPE_NAME: "\\\\.\\pipe\\zen_voice_ipc",
-        },
+        environment: envVars,
       });
       logDebug(`Demonio de micrófono iniciado con éxito (PID: ${this.#micProcess?.pid})`);
     } catch (err) {
@@ -686,6 +777,7 @@ export class ZenVoiceEngineClient {
 
   #cleanup() {
     this.stopMicDaemon();
+    this.#stopFallbackFileWatcher();
     if (this.#observerBound) {
       try {
         Services.obs.removeObserver(this, "quit-application-granted");
