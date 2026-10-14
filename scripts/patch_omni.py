@@ -12,6 +12,7 @@ ACTORS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 TARGET_ACTORS = {
     "actors/ZenVoiceNavParent.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceNavParent.sys.mjs"),
+    "actors/ZenVoiceNavChild.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceNavChild.sys.mjs"),
     "actors/ZenVoiceEngineClient.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEngineClient.sys.mjs"),
     "actors/ZenVoiceEarconsData.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEarconsData.sys.mjs"),
 }

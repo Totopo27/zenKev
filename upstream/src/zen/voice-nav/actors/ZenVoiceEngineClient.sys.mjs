@@ -260,11 +260,43 @@ export class ZenVoiceEngineClient {
                     dispatched = true;
                     break;
                   } else {
-                    logDebug(`Ventana #${count} NO tiene actor ni gZenVoiceNav`);
+                    logDebug(`Ventana #${count} NO tiene actor ni gZenVoiceNav. Intentando inicialización directa...`);
+                    try {
+                      const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+                      if (mod?.initZenVoiceNav) {
+                        mod.initZenVoiceNav(win);
+                      }
+                      if (win.gZenVoiceNav?.processCommand) {
+                        win.gZenVoiceNav.processCommand(transcript).catch((e) => {
+                          logDebug(`Error en fallback gZenVoiceNav: ${e}`);
+                        });
+                        dispatched = true;
+                        break;
+                      } else if (mod?.executeGlobalVoiceCommand) {
+                        logDebug(`Despachando comando directamente a executeGlobalVoiceCommand en ventana #${count}...`);
+                        mod.executeGlobalVoiceCommand(transcript, win, null).catch((e) => {
+                          logDebug(`Error en executeGlobalVoiceCommand directo: ${e}`);
+                        });
+                        dispatched = true;
+                        break;
+                      }
+                    } catch (errDirect) {
+                      logDebug(`Error en inicializacion directa de ventana: ${errDirect}`);
+                    }
                   }
                 }
                 if (!dispatched) {
-                  logDebug(`AVISO: Ninguna ventana/pestaña pudo procesar el comando.`);
+                  logDebug(`AVISO: Ninguna ventana activa en enumerador. Intentando ventana principal de Services.wm...`);
+                  const fallbackWin = Services.wm?.getMostRecentWindow("navigator:browser");
+                  if (fallbackWin) {
+                    try {
+                      const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+                      if (mod?.executeGlobalVoiceCommand) {
+                        mod.executeGlobalVoiceCommand(transcript, fallbackWin, null).catch(() => {});
+                        dispatched = true;
+                      }
+                    } catch (_) {}
+                  }
                 }
               } catch (e) {
                 logDebug(`Excepción al despachar comando: ${e}`);

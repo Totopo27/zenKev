@@ -23,17 +23,33 @@ if not exist "%~dp0scripts\patch_omni.py" (
 
 REM 1. Deteccion automatica de Zen Browser
 set "ZEN_BIN="
-if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
-if exist "%PROGRAMFILES%\Zen Browser\zen.exe" set "ZEN_BIN=%PROGRAMFILES%\Zen Browser\zen.exe"
-if exist "C:\Program Files\Zen Browser\zen.exe" set "ZEN_BIN=C:\Program Files\Zen Browser\zen.exe"
-if exist "%ProgramFiles(x86)%\Zen Browser\zen.exe" set "ZEN_BIN=%ProgramFiles(x86)%\Zen Browser\zen.exe"
-if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
+
+REM 1.1 Intentar deteccion inteligente profunda con Python (acceso directo en escritorio, registro, procesos, carpetas de usuario)
+if exist "%~dp0scripts\detect_zen.py" (
+    for /f "usebackq delims=" %%A in (`python "%~dp0scripts\detect_zen.py" 2^>nul`) do (
+        if exist "%%A" set "ZEN_BIN=%%A"
+    )
+)
+
+REM 1.2 Rutas fijas tradicionales de respaldo
+if "!ZEN_BIN!"=="" (
+    if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
+    if exist "%PROGRAMFILES%\Zen Browser\zen.exe" set "ZEN_BIN=%PROGRAMFILES%\Zen Browser\zen.exe"
+    if exist "C:\Program Files\Zen Browser\zen.exe" set "ZEN_BIN=C:\Program Files\Zen Browser\zen.exe"
+    if exist "%ProgramFiles(x86)%\Zen Browser\zen.exe" set "ZEN_BIN=%ProgramFiles(x86)%\Zen Browser\zen.exe"
+    if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
+    if exist "%USERPROFILE%\Desktop\zen\Zen Browser\zen.exe" set "ZEN_BIN=%USERPROFILE%\Desktop\zen\Zen Browser\zen.exe"
+    if exist "%USERPROFILE%\Desktop\Zen Browser\zen.exe" set "ZEN_BIN=%USERPROFILE%\Desktop\Zen Browser\zen.exe"
+)
 
 if "!ZEN_BIN!"=="" (
     echo [!] No encontramos Zen Browser en las rutas tipicas.
     echo     Por favor ingresa o arrastra la ruta completa a tu zen.exe:
     set /p "ZEN_BIN=> "
 )
+
+REM Limpiar comillas si el usuario arrastro el archivo con comillas
+set "ZEN_BIN=!ZEN_BIN:"=!"
 
 if "!ZEN_BIN!"=="" (
     echo [ERROR] No se indico una ruta valida a Zen Browser. Abortando...
@@ -108,6 +124,18 @@ if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] No se pudo parchear omni.ja. Revisa permisos o si Zen Browser sigue abierto.
     pause
     exit /b 1
+)
+
+REM 7. Inyectar preferencias de voz activas en los perfiles de usuario
+echo [*] Configurando preferencias de navegacion por voz en perfiles de Zen Browser...
+for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+    (
+        echo // zenKev Voice Navigation Preferences
+        echo user_pref^("zen.voicenav.enabled", true^);
+        echo user_pref^("zen.voicenav.mode", "both"^);
+        echo user_pref^("zen.voicenav.debug", true^);
+        echo user_pref^("zen.voicenav.earcons", true^);
+    ) >> "%%D\user.js"
 )
 echo.
 

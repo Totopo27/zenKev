@@ -12,17 +12,33 @@ echo.
 
 REM 1. Deteccion automatica de Zen Browser
 set "ZEN_BIN="
-if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
-if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
-if exist "%PROGRAMFILES%\Zen Browser\zen.exe" set "ZEN_BIN=%PROGRAMFILES%\Zen Browser\zen.exe"
-if exist "C:\Program Files\Zen Browser\zen.exe" set "ZEN_BIN=C:\Program Files\Zen Browser\zen.exe"
-if exist "%ProgramFiles(x86)%\Zen Browser\zen.exe" set "ZEN_BIN=%ProgramFiles(x86)%\Zen Browser\zen.exe"
+
+REM 1.1 Intentar deteccion inteligente profunda con Python (acceso directo en escritorio, registro, procesos, carpetas de usuario)
+if exist "%~dp0scripts\detect_zen.py" (
+    for /f "usebackq delims=" %%A in (`python "%~dp0scripts\detect_zen.py" 2^>nul`) do (
+        if exist "%%A" set "ZEN_BIN=%%A"
+    )
+)
+
+REM 1.2 Rutas fijas tradicionales de respaldo
+if "!ZEN_BIN!"=="" (
+    if exist "D:\Programs\ZenBrowser\zen.exe" set "ZEN_BIN=D:\Programs\ZenBrowser\zen.exe"
+    if exist "%LOCALAPPDATA%\Zen Browser\zen.exe" set "ZEN_BIN=%LOCALAPPDATA%\Zen Browser\zen.exe"
+    if exist "%PROGRAMFILES%\Zen Browser\zen.exe" set "ZEN_BIN=%PROGRAMFILES%\Zen Browser\zen.exe"
+    if exist "C:\Program Files\Zen Browser\zen.exe" set "ZEN_BIN=C:\Program Files\Zen Browser\zen.exe"
+    if exist "%ProgramFiles(x86)%\Zen Browser\zen.exe" set "ZEN_BIN=%ProgramFiles(x86)%\Zen Browser\zen.exe"
+    if exist "%USERPROFILE%\Desktop\zen\Zen Browser\zen.exe" set "ZEN_BIN=%USERPROFILE%\Desktop\zen\Zen Browser\zen.exe"
+    if exist "%USERPROFILE%\Desktop\Zen Browser\zen.exe" set "ZEN_BIN=%USERPROFILE%\Desktop\Zen Browser\zen.exe"
+)
 
 if "!ZEN_BIN!"=="" (
     echo [!] No pudimos encontrar Zen Browser en las rutas habituales.
     echo     Por favor ingresa o arrastra la ruta completa a tu zen.exe:
     set /p "ZEN_BIN=> "
 )
+
+REM Limpiar comillas si el usuario arrastro el archivo con comillas
+set "ZEN_BIN=!ZEN_BIN:"=!"
 
 if "!ZEN_BIN!"=="" (
     echo [ERROR] No se indico una ruta valida a Zen Browser. Saliendo...
@@ -86,6 +102,13 @@ REM Limpiar instancias previas colgadas y locks huerfanos del perfil de Gecko
 taskkill /f /im zen.exe >nul 2>&1
 for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
     if exist "%%D\parent.lock" del /f /q "%%D\parent.lock" >nul 2>&1
+    (
+        echo // zenKev Voice Navigation Preferences
+        echo user_pref^("zen.voicenav.enabled", true^);
+        echo user_pref^("zen.voicenav.mode", "both"^);
+        echo user_pref^("zen.voicenav.debug", true^);
+        echo user_pref^("zen.voicenav.earcons", true^);
+    ) >> "%%D\user.js"
 )
 
 REM Parchear omni.ja si es necesario para asegurar modulos actualizados
