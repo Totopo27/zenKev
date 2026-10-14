@@ -100,6 +100,13 @@ if %ERRORLEVEL% NEQ 0 (
             exit /b 1
         )
     )
+) else (
+    REM Si torch ya esta instalado, verificar compatibilidad basica con CUDA si existe GPU
+    python -c "import torch; exit(0 if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] <= 9 else 1)" >nul 2>&1
+    if !ERRORLEVEL! NEQ 0 (
+        echo [!] AVISO: GPU de arquitectura muy reciente detectada. Si experimentas errores de kernel, actualiza PyTorch con:
+        echo     pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
+    )
 )
 
 echo.

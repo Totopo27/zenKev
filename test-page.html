@@ -427,9 +427,19 @@
     let recognition = null;
     function toggleBrowserSpeech() {
       const btn = document.getElementById("btn-browser-mic");
+      const resBox = document.getElementById("predict-result");
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        alert("Tu navegador no soporta Web Speech API nativa. Puedes escribir el texto en el campo o usar zen_live_mic.py");
+        if (resBox) {
+          resBox.style.display = "block";
+          resBox.innerHTML = `
+            <div style="color:#38bdf8; font-weight:bold; margin-bottom:4px;">ℹ️ Modo Zen Browser Detectado (Gecko Engine)</div>
+            <div style="color:#cbd5e1; font-size:12px; line-height:1.4;">
+              Zen Browser utiliza el demonio en tiempo real <strong>zen_live_mic.py</strong> para capturar tu micrófono físico sin tocar el teclado ni depender de APIs web externas.<br>
+              ¡Habla directamente por tu micrófono o presiona <strong>Alt + V</strong>! El botón "Dictar" solo aplica a navegadores basados en Chromium.
+            </div>
+          `;
+        }
         return;
       }
 

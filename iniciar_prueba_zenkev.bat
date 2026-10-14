@@ -46,6 +46,11 @@ if exist "!LOCAL_ENGINE!" (
         echo [*] Copiando motor de voz de baja latencia a la carpeta de Zen Browser...
         copy /y "!LOCAL_ENGINE!" "!ZEN_DIR!zen-voice-engine.exe" >nul
     )
+    REM Copiar tambien a los perfiles de usuario para resolucion directa
+    for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+        copy /y "!LOCAL_ENGINE!" "%%D\zen-voice-engine.exe" >nul 2>&1
+        copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
+    )
 )
 copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!zen_live_mic.py" >nul
 
@@ -76,8 +81,22 @@ for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
     if exist "%%D\parent.lock" del /f /q "%%D\parent.lock" >nul 2>&1
 )
 
+REM Parchear omni.ja si es necesario para asegurar modulos actualizados
+if exist "%~dp0scripts\patch_omni.py" (
+    python "%~dp0scripts\patch_omni.py" patch "!ZEN_DIR!" >nul 2>&1
+)
+
 set "TEST_URL=%~dp0test-page.html"
 set "TEST_URL=!TEST_URL:\=/!"
+
+echo [*] Configurando variables de entorno para motor de voz...
+if exist "!LOCAL_ENGINE!" (
+    set "ZEN_VOICE_ENGINE_BIN=!LOCAL_ENGINE!"
+) else if exist "!ZEN_DIR!zen-voice-engine.exe" (
+    set "ZEN_VOICE_ENGINE_BIN=!ZEN_DIR!zen-voice-engine.exe"
+)
+set "ZEN_VOICE_KEV_ENDPOINT=http://127.0.0.1:8080/choice"
+set "ZEN_VOICE_PIPE_NAME=\\.\pipe\zen_voice_ipc"
 
 echo [*] Abriendo Zen Browser (limpiando cache de arranque con -purgecaches)...
 start "" "!ZEN_BIN!" -purgecaches "file:///!TEST_URL!"

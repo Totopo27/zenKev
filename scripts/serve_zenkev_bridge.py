@@ -45,6 +45,7 @@ PORT = int(os.environ.get("ZENKEV_PORT", 8080))
 
 global_tok = None
 global_model = None
+global_device_str = "cuda"
 
 class KevServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -105,7 +106,8 @@ class KevServerHandler(BaseHTTPRequestHandler):
                 rec = materialize(k_req)
                 enc = global_model.encode(global_tok, rec, strict=True)
                 probs = global_model.probs(enc)[0].numpy()
-                sync("cuda")
+                if global_device_str == "cuda":
+                    sync("cuda")
                 
                 choice_idx = int(probs.argmax())
                 confidence = float(probs[choice_idx])
@@ -165,7 +167,8 @@ class KevServerHandler(BaseHTTPRequestHandler):
                 rec = materialize(k_req)
                 enc = global_model.encode(global_tok, rec, strict=True)
                 probs = global_model.probs(enc)
-                sync("cuda")
+                if global_device_str == "cuda":
+                    sync("cuda")
                 
                 p_sub = probs[0].numpy()
                 p_act = probs[1].numpy()
@@ -192,7 +195,7 @@ class KevServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
 
 def run():
-    global global_tok, global_model
+    global global_tok, global_model, global_device_str
     print("=================================================================")
     print("🚀 INICIANDO PUENTE LOCAL ZENKEV BRIDGE (Kev-4B v3)")
     print(f"Modelo: {MODEL_PATH}")
@@ -200,9 +203,46 @@ def run():
     print("=================================================================")
     
     t0 = time.time()
-    global_tok, global_model = Checkpoint(MODEL_PATH).load(device=torch.device("cuda"), opts=LoadOptions(dtype=torch.bfloat16))
-    global_model.eval()
-    print(f"[OK] Kev-4B v3 cargado y listo en VRAM ({time.time() - t0:.2f}s)")
+    device_to_use = "cuda" if torch.cuda.is_available() else "cpu"
+    load_success = False
+
+    if device_to_use == "cuda":
+        try:
+            print("[*] Intentando carga acelerada en GPU (CUDA, bfloat16)...")
+            global_tok, global_model = Checkpoint(MODEL_PATH).load(device=torch.device("cuda"), opts=LoadOptions(dtype=torch.bfloat16))
+            global_model.eval()
+            # Test rápido de inferencia dummy para verificar compatibilidad de kernels con la arquitectura GPU
+            test_req = {
+                "state": "test",
+                "questions": {
+                    "q": {"type": "choice", "instructions": "?", "criteria": {"a": "a", "b": "b"}, "label": "a", "src": "test"}
+                }
+            }
+            with torch.no_grad():
+                test_rec = materialize(test_req)
+                test_enc = global_model.encode(global_tok, test_rec, strict=False)
+                _ = global_model.probs(test_enc)
+                sync("cuda")
+            global_device_str = "cuda"
+            load_success = True
+            print(f"[OK] Kev-4B v3 cargado y verificado en VRAM GPU ({time.time() - t0:.2f}s)")
+        except Exception as cuda_err:
+            print(f"\n[!] AVISO: Incompatibilidad detectada con aceleracion CUDA/GPU:")
+            print(f"    Detalle del error: {cuda_err}")
+            print("    -> Causa probable: Desajuste de compute capability o PyTorch desactualizado para su GPU.")
+            print("    -> Para máximo rendimiento GPU, actualice PyTorch con:")
+            print("       pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124\n")
+            print("[*] Activando fallback automatico y seguro a CPU para garantizar funcionamiento continuo...")
+            empty_cache("cuda")
+            global_tok = None
+            global_model = None
+
+    if not load_success:
+        t_cpu = time.time()
+        global_tok, global_model = Checkpoint(MODEL_PATH).load(device=torch.device("cpu"), opts=LoadOptions(dtype=torch.float32))
+        global_model.eval()
+        global_device_str = "cpu"
+        print(f"[OK] Kev-4B v3 cargado exitosamente en CPU ({time.time() - t_cpu:.2f}s)")
     
     server = HTTPServer((HOST, PORT), KevServerHandler)
     print(f"[OK] Servidor escuchando peticiones en http://{HOST}:{PORT}/choice")

@@ -60,6 +60,49 @@ export class ZenVoiceEngineClient {
     this.#registerShutdownObserver();
   }
 
+  async #resolveEnginePath() {
+    if (this.#enginePath) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(this.#enginePath))) {
+          return this.#enginePath;
+        }
+      } catch (_) {}
+    }
+
+    try {
+      const pref = Services.prefs.getStringPref("zen.voicenav.engine-path");
+      if (pref && typeof IOUtils !== "undefined" && (await IOUtils.exists(pref))) {
+        return pref;
+      }
+    } catch (_) {}
+
+    const envBin = Services.env?.get("ZEN_VOICE_ENGINE_BIN");
+    if (envBin) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(envBin))) {
+          return envBin;
+        }
+      } catch (_) {}
+    }
+
+    const candidates = [
+      PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe"),
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\modules\\voice-engine\\target\\release\\zen-voice-engine.exe",
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\modules\\voice-engine\\target\\debug\\zen-voice-engine.exe",
+      "D:\\DocumentosDiscoD\\Zen\\zenKev\\zen-voice-engine.exe",
+    ];
+
+    for (const c of candidates) {
+      try {
+        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(c))) {
+          return c;
+        }
+      } catch (_) {}
+    }
+
+    return this.#enginePath || PathUtils.join(PathUtils.profileDir, "zen-voice-engine.exe");
+  }
+
   #registerShutdownObserver() {
     if (this.#observerBound) return;
     this.#observerBound = true;
@@ -92,6 +135,10 @@ export class ZenVoiceEngineClient {
 
   async #doStart() {
     try {
+      const resolvedEngine = await this.#resolveEnginePath();
+      this.#enginePath = resolvedEngine;
+      logDebug(`Lanzando subproceso de voz nativo: ${this.#enginePath}`);
+
       const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
                       PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
 
