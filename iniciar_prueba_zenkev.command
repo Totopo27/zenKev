@@ -10,11 +10,25 @@ echo "  zenKev Voice Navigator - Entorno de Prueba (macOS)"
 echo "============================================================"
 echo ""
 
-PYTHON_BIN="python3"
-if ! command -v python3 >/dev/null 2>&1; then
+# 1. Resolver ejecutable de Python (preferir entorno virtual aislado)
+VENV_PYTHON="$(pwd)/.zenkev_venv/bin/python"
+if [ -f "$VENV_PYTHON" ]; then
+    PYTHON_BIN="$VENV_PYTHON"
+    echo "[OK] Usando entorno virtual: .zenkev_venv"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
+else
+    echo "[ERROR] No se encontro Python 3. Ejecuta primero ./instalar_zenkev.command"
+    read -n 1 -s -r -p "Presiona cualquier tecla para salir..."
+    exit 1
 fi
 
+export ZEN_VOICE_IPC_PATH="/tmp/zen_voice_command.ipc"
+export ZEN_VOICE_SOCKET_PATH="/tmp/zen_voice_ipc.sock"
+
+# 2. Localizar Zen Browser
 ZEN_APP=""
 if [ -d "/Applications/Zen Browser.app" ]; then
     ZEN_APP="/Applications/Zen Browser.app"
@@ -24,9 +38,18 @@ elif [ -d "$HOME/Applications/Zen Browser.app" ]; then
     ZEN_APP="$HOME/Applications/Zen Browser.app"
 elif [ -d "$HOME/Applications/Zen.app" ]; then
     ZEN_APP="$HOME/Applications/Zen.app"
+else
+    DETECTED=$($PYTHON_BIN scripts/detect_zen.py 2>/dev/null || true)
+    if [ -n "$DETECTED" ]; then
+        ZEN_APP="$DETECTED"
+    fi
 fi
 
-# 1. Copiar y sincronizar con los perfiles
+if [[ "$ZEN_APP" == *".app"* ]]; then
+    ZEN_APP="${ZEN_APP%%.app*}.app"
+fi
+
+# 3. Sincronizar script de microfono y preferencias activas en perfiles
 PROFILES_DIR="$HOME/Library/Application Support/zen/Profiles"
 if [ -d "$PROFILES_DIR" ]; then
     for profile in "$PROFILES_DIR"/*; do
@@ -43,33 +66,21 @@ EOF
     done
 fi
 
-# 2. Verificar dependencias de audio
-$PYTHON_BIN -c "import sounddevice, numpy, speech_recognition" >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "[*] Instalando dependencias requeridas..."
-    $PYTHON_BIN -m pip install --quiet sounddevice numpy SpeechRecognition
-fi
-
-# 3. Servidor de inferencia Kev-4B v6 (puerto 8080)
+# 4. Servidor de inferencia Kev-4B v6 (puerto 8080)
 echo "[*] Verificando servidor de inferencia Kev-4B v6 (puerto 8080)..."
 curl -s -m 2 http://127.0.0.1:8080/health >/dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "[*] Iniciando servidor puente de inferencia en segundo plano..."
     $PYTHON_BIN scripts/serve_zenkev_bridge.py > /dev/null 2>&1 &
-    sleep 3
+    sleep 2
 else
     echo "[OK] Servidor de inferencia activo y respondiendo."
-fi
-
-# 4. Parchear si es necesario
-if [ -n "$ZEN_APP" ] && [ -f "scripts/patch_omni.py" ]; then
-    $PYTHON_BIN scripts/patch_omni.py patch "$ZEN_APP" >/dev/null 2>&1 || true
 fi
 
 # 5. Abrir Zen Browser con la página de pruebas
 CURRENT_DIR=$(pwd)
 echo "[*] Abriendo Zen Browser con pagina de pruebas..."
-if [ -n "$ZEN_APP" ]; then
+if [ -n "$ZEN_APP" ] && [ -d "$ZEN_APP" ]; then
     open -a "$ZEN_APP" --args -purgecaches "file://$CURRENT_DIR/test-page.html"
 else
     open "file://$CURRENT_DIR/test-page.html"
@@ -86,7 +97,10 @@ echo ""
 
 read -p "[?] Deseas activar la escucha en vivo desde tu microfono fisico ahora? (S/N): " START_MIC
 if [[ "$START_MIC" =~ ^[Ss]$ ]]; then
-    echo "[*] Iniciando captura de microfono manos libres..."
+    echo ""
+    echo "[*] Asegurate de que Terminal tenga permiso en:"
+    echo "    Ajustes del Sistema -> Privacidad y Seguridad -> Microfono"
+    echo "[*] Iniciando captura de voz en vivo..."
     $PYTHON_BIN zen_live_mic.py
 else
     echo "[OK] Puedes iniciar el microfono en cualquier momento con: $PYTHON_BIN zen_live_mic.py"

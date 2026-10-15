@@ -186,26 +186,33 @@ export class ZenVoiceEngineClient {
   #filePollerTimer = null;
   #startFallbackFileWatcher() {
     if (this.#filePollerTimer) return;
-    const ipcPath = Services.env.get("ZEN_VOICE_IPC_PATH") ||
-                    PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc");
+    const isWindows = Services.appinfo?.OS === "WINNT";
+    const explicitIpc = Services.env.get("ZEN_VOICE_IPC_PATH");
+    const candidatePaths = [
+      explicitIpc,
+      PathUtils.join(PathUtils.tempDir, "zen_voice_command.ipc"),
+      !isWindows ? "/tmp/zen_voice_command.ipc" : null,
+    ].filter(Boolean);
 
-    logDebug(`Iniciando observador de archivo IPC de respaldo en: ${ipcPath}`);
+    logDebug(`Iniciando observador de archivo IPC de respaldo en: ${candidatePaths.join(", ")}`);
     this.#filePollerTimer = setInterval(async () => {
-      try {
-        if (typeof IOUtils !== "undefined" && (await IOUtils.exists(ipcPath))) {
-          const content = await IOUtils.readUTF8(ipcPath);
-          if (content && content.trim()) {
-            await IOUtils.writeUTF8(ipcPath, "");
-            const lines = content.split("\n");
-            for (const line of lines) {
-              const transcript = line.trim();
-              if (transcript) {
-                this.#dispatchLiveVoiceCommand(transcript);
+      for (const ipcPath of candidatePaths) {
+        try {
+          if (typeof IOUtils !== "undefined" && (await IOUtils.exists(ipcPath))) {
+            const content = await IOUtils.readUTF8(ipcPath);
+            if (content && content.trim()) {
+              await IOUtils.writeUTF8(ipcPath, "");
+              const lines = content.split("\n");
+              for (const line of lines) {
+                const transcript = line.trim();
+                if (transcript) {
+                  this.#dispatchLiveVoiceCommand(transcript);
+                }
               }
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }, 80);
   }
 

@@ -59,9 +59,14 @@ LOG_FILE = os.environ.get(
     os.path.join(tempfile.gettempdir(), "zen_live_mic.log")
 )
 
+def _get_default_ipc_file():
+    if sys.platform != "win32":
+        return "/tmp/zen_voice_command.ipc"
+    return os.path.join(tempfile.gettempdir(), "zen_voice_command.ipc")
+
 IPC_FILE = os.environ.get(
     "ZEN_VOICE_IPC_PATH",
-    os.path.join(tempfile.gettempdir(), "zen_voice_command.ipc")
+    _get_default_ipc_file()
 )
 
 # Named Pipe de Windows (canal reactivo prioritario de latencia ultrabaja)
@@ -195,14 +200,27 @@ def send_voice_command(transcript: str) -> bool:
         except Exception:
             pass
 
-    # Fallback automático a archivo IPC
-    try:
-        with open(IPC_FILE, "a", encoding="utf-8") as f_ipc:
-            f_ipc.write(transcript + "\n")
+    # Fallback automático a archivo IPC (sincronización multi-ruta en Unix/macOS)
+    written = False
+    targets = [IPC_FILE]
+    if sys.platform != "win32":
+        alt = os.path.join(tempfile.gettempdir(), "zen_voice_command.ipc")
+        if alt not in targets:
+            targets.append(alt)
+
+    for target in targets:
+        try:
+            with open(target, "a", encoding="utf-8") as f_ipc:
+                f_ipc.write(transcript + "\n")
+            written = True
+        except Exception:
+            pass
+
+    if written:
         log_event(f"🚀 Comando \"{transcript}\" enviado vía archivo IPC ({IPC_FILE})")
         return True
-    except Exception as err:
-        log_event(f"❌ Error escribiendo a archivo IPC: {err}")
+    else:
+        log_event(f"❌ Error escribiendo a archivo IPC ({IPC_FILE})")
         return False
 
 def log_event(msg):

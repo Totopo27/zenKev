@@ -55,6 +55,11 @@ def find_omni_path(target_path):
     if os.path.isfile(target_path) and target_path.lower().endswith("omni.ja"):
         return target_path
 
+    # Normalizar si la ruta apunta dentro del bundle .app
+    if ".app" in target_path.lower():
+        idx = target_path.lower().find(".app")
+        target_path = target_path[:idx + 4]
+
     candidates = [
         os.path.join(target_path, "omni.ja"),
         os.path.join(target_path, "browser", "omni.ja"),
@@ -147,6 +152,10 @@ def patch_omni(browser_dir):
         if os.path.isfile(omni_path):
             os.remove(omni_path)
         os.rename(temp_path, omni_path)
+        try:
+            os.chmod(omni_path, 0o644)
+        except Exception:
+            pass
         print("[OK] omni.ja patched successfully.")
         return True
     except Exception as e:
@@ -185,8 +194,8 @@ if __name__ == "__main__":
     action = sys.argv[1].lower()
     b_dir = sys.argv[2]
 
-    # If user gave the root Zen Browser folder, point to browser/ subdirectory
-    if os.path.isdir(os.path.join(b_dir, "browser")):
+    # If user gave the root Zen Browser folder, point to browser/ subdirectory (except on macOS .app bundles)
+    if not b_dir.lower().endswith(".app") and os.path.isdir(os.path.join(b_dir, "browser")):
         b_dir = os.path.join(b_dir, "browser")
 
     if action == "patch":

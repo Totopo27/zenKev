@@ -120,10 +120,6 @@ def find_zen_bin():
         ]
         for app in mac_apps:
             if os.path.isdir(app):
-                # Preferir el binario ejecutable si existe
-                bin_path = os.path.join(app, "Contents", "MacOS", "zen")
-                if os.path.isfile(bin_path):
-                    return bin_path
                 return app
         return None
 

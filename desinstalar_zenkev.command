@@ -11,13 +11,17 @@ echo "  (Restaura Zen Browser exactamente a su estado de fabrica)"
 echo "============================================================"
 echo ""
 
+# 1. Resolver Python
 PYTHON_BIN=""
-if command -v python3 >/dev/null 2>&1; then
+if [ -f "$(pwd)/.zenkev_venv/bin/python" ]; then
+    PYTHON_BIN="$(pwd)/.zenkev_venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="python3"
 elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
 fi
 
+# 2. Localizar Zen Browser
 ZEN_APP=""
 if [ -d "/Applications/Zen Browser.app" ]; then
     ZEN_APP="/Applications/Zen Browser.app"
@@ -36,6 +40,9 @@ if [ -z "$ZEN_APP" ]; then
 fi
 
 ZEN_APP=$(echo "$ZEN_APP" | sed 's/^"//;s/"$//')
+if [[ "$ZEN_APP" == *".app"* ]]; then
+    ZEN_APP="${ZEN_APP%%.app*}.app"
+fi
 
 echo "[*] Cerrando instancias de Zen Browser..."
 killall "zen" >/dev/null 2>&1 || true
@@ -54,8 +61,38 @@ if [ -d "$PROFILES_DIR" ]; then
 fi
 
 echo "[*] Restaurando archivo original omni.ja..."
+OMNI_FILE=""
+for cand in "$ZEN_APP/Contents/Resources/browser/omni.ja" "$ZEN_APP/Contents/Resources/omni.ja" "$ZEN_APP/browser/omni.ja"; do
+    if [ -f "$cand" ]; then
+        OMNI_FILE="$cand"
+        break
+    fi
+done
+
+NEED_SUDO=0
+if [ -n "$OMNI_FILE" ] && [ ! -w "$OMNI_FILE" ]; then
+    NEED_SUDO=1
+elif [ ! -w "$ZEN_APP" ]; then
+    NEED_SUDO=1
+fi
+
 if [ -n "$PYTHON_BIN" ] && [ -f "scripts/patch_omni.py" ]; then
-    $PYTHON_BIN scripts/patch_omni.py restore "$ZEN_APP"
+    if [ $NEED_SUDO -eq 1 ]; then
+        echo "[*] Se requieren permisos de administrador para restaurar archivos en /Applications."
+        echo "    Introduce tu contrasena de macOS si el sistema te la solicita:"
+        sudo "$PYTHON_BIN" scripts/patch_omni.py restore "$ZEN_APP"
+    else
+        "$PYTHON_BIN" scripts/patch_omni.py restore "$ZEN_APP"
+    fi
+fi
+
+# Re-firmar ad-hoc para que Gatekeeper no se queje tras restaurar
+if command -v codesign >/dev/null 2>&1; then
+    if [ $NEED_SUDO -eq 1 ]; then
+        sudo codesign --force --deep -s - "$ZEN_APP" 2>/dev/null || true
+    else
+        codesign --force --deep -s - "$ZEN_APP" 2>/dev/null || true
+    fi
 fi
 
 echo ""

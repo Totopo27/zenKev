@@ -99,13 +99,16 @@ Si quieres probar el razonamiento completo con el modelo fine-tuned **[Ttotopo27
   Kev-4B v6 no es un chatbot que genera texto durante segundos. Es un clasificador NLI ultra-rápido que resuelve la intención en un único paso de ~15-30 milisegundos. En reposo consume 0% y durante la inferencia es tan veloz que no alcanza a mover el medidor de Windows.
 * **Al hacer clic en "Dictar" en la página de prueba me salía un aviso:**
   La API Web Speech es exclusiva de navegadores basados en Chromium. Zen Browser utiliza el motor nativo **zen_live_mic.py** en segundo plano, por lo que no necesitas presionar botones en la web: habla directamente a tu micrófono.
+* **En macOS no me reconoce la voz al hablar:**
+  macOS bloquea la captura de audio por defecto. Asegúrate de que tu aplicación de **Terminal** tenga la casilla de acceso al Micrófono activada en: *Ajustes del Sistema -> Privacidad y Seguridad -> Micrófono*.
 * **Si Zen Browser está instalado en el Escritorio o una carpeta no estándar:**
-  El instalador ahora detecta accesos directos, registros y carpetas en el Escritorio automáticamente. Si necesitas moverlo, simplemente arrastra el ejecutable `zen.exe` al instalador.
+  El instalador detecta accesos directos, registros y carpetas estándar automáticamente. En macOS revisa `/Applications` y `~/Applications`.
 
 ---
 
 ## 🔄 Cómo Desinstalar
 
 Si deseas volver al estado 100% de fábrica de Zen Browser en cualquier momento:
-1. Haz doble clic en **`desinstalar_zenkev.bat`**.
-2. Tu navegador recuperará su respaldo original sin dejar archivos residuales.
+* **En Windows**: Haz doble clic en **`desinstalar_zenkev.bat`**.
+* **En macOS**: Haz doble clic en **`desinstalar_zenkev.command`** (o ejecútalo en Terminal).
+* Tu navegador recuperará su respaldo original sin dejar archivos residuales.
