@@ -2532,8 +2532,36 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
               return { success: true, action: "tab_new" };
             }
           }
+          if (op === "pin" && gBrowser?.selectedTab) {
+            if (!gBrowser.selectedTab.pinned) gBrowser.pinTab(gBrowser.selectedTab);
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña fijada" });
+            return { success: true, action: "tab_pin" };
+          }
+          if (op === "unpin" && gBrowser?.selectedTab) {
+            if (gBrowser.selectedTab.pinned) gBrowser.unpinTab(gBrowser.selectedTab);
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña desfijada" });
+            return { success: true, action: "tab_unpin" };
+          }
+          if (op === "duplicate" && gBrowser?.selectedTab) {
+            if (typeof gBrowser.duplicateTab === "function") gBrowser.duplicateTab(gBrowser.selectedTab);
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña duplicada" });
+            return { success: true, action: "tab_duplicate" };
+          }
+          if (op === "toggle_mute" && gBrowser?.selectedTab) {
+            if (typeof gBrowser.toggleMuteTab === "function") gBrowser.toggleMuteTab(gBrowser.selectedTab);
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Audio de pestaña alternado" });
+            return { success: true, action: "tab_toggle_mute" };
+          }
         }
         break;
+      }
+
+      case "fullscreen_action": {
+        if (typeof topWin?.BrowserFullScreen === "function") {
+          topWin.BrowserFullScreen();
+        }
+        showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pantalla completa" });
+        return { success: true, action: "fullscreen_toggle" };
       }
 
       case "navigate": {

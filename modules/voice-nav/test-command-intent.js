@@ -114,7 +114,19 @@ const parsedDl = parseIncomingVoicePayload(dlPayload);
 assert.equal(parsedDl.action, "download_action");
 assert.equal(parsedDl.params.operation, "open_panel");
 
-// 5. Validar Fallback para texto plano heredado
+// 5. Validar Fullscreen Action
+const fsPayload = JSON.stringify({
+  type: "command_intent",
+  action: "fullscreen_action",
+  params: { operation: "toggle" },
+  raw_transcript: "pantalla completa",
+  confidence: 0.96,
+});
+const parsedFs = parseIncomingVoicePayload(fsPayload);
+assert.equal(parsedFs.action, "fullscreen_action");
+assert.equal(parsedFs.params.operation, "toggle");
+
+// 6. Validar Fallback para texto plano heredado
 const legacyPayload = parseIncomingVoicePayload("texto plano de prueba");
 assert.equal(legacyPayload.action, "legacy_raw");
 assert.equal(legacyPayload.raw_transcript, "texto plano de prueba");

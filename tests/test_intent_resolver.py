@@ -96,6 +96,54 @@ def test_resolve_tab_actions():
         "confidence": 0.96,
     }
 
+    pin_tab = resolve_command_intent("fijar pestaña", confidence=0.95)
+    assert pin_tab == {
+        "type": "command_intent",
+        "action": "tab_action",
+        "params": {"operation": "pin"},
+        "raw_transcript": "fijar pestaña",
+        "confidence": 0.95,
+    }
+
+    unpin_tab = resolve_command_intent("desfijar pestaña", confidence=0.94)
+    assert unpin_tab == {
+        "type": "command_intent",
+        "action": "tab_action",
+        "params": {"operation": "unpin"},
+        "raw_transcript": "desfijar pestaña",
+        "confidence": 0.94,
+    }
+
+    duplicate_tab = resolve_command_intent("duplicar pestaña", confidence=0.93)
+    assert duplicate_tab == {
+        "type": "command_intent",
+        "action": "tab_action",
+        "params": {"operation": "duplicate"},
+        "raw_transcript": "duplicar pestaña",
+        "confidence": 0.93,
+    }
+
+    mute_tab = resolve_command_intent("silenciar pestaña", confidence=0.97)
+    assert mute_tab == {
+        "type": "command_intent",
+        "action": "tab_action",
+        "params": {"operation": "toggle_mute"},
+        "raw_transcript": "silenciar pestaña",
+        "confidence": 0.97,
+    }
+
+
+def test_resolve_fullscreen_action():
+    fs = resolve_command_intent("pantalla completa", confidence=0.96)
+    assert fs == {
+        "type": "command_intent",
+        "action": "fullscreen_action",
+        "params": {"operation": "toggle"},
+        "raw_transcript": "pantalla completa",
+        "confidence": 0.96,
+    }
+
+
 
 def test_resolve_navigate_intent():
     site_intent = resolve_command_intent("abrir youtube", confidence=0.97)

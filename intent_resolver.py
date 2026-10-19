@@ -312,6 +312,53 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
             "confidence": confidence,
         }
 
+    if re.search(r"\b(?:fijar|anclar|pinear)\s+pesta[ñn]a\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "tab_action",
+            "params": {"operation": "pin"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:desfijar|desanclar|despinear)\s+pesta[ñn]a\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "tab_action",
+            "params": {"operation": "unpin"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:duplicar|clonar)\s+pesta[ñn]a\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "tab_action",
+            "params": {"operation": "duplicate"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:silenciar|mutear)\s+pesta[ñn]a|(?:activar|desmutear)\s+(?:sonido|audio)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "tab_action",
+            "params": {"operation": "toggle_mute"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    # Pantalla Completa
+    if re.search(r"\bpantalla\s+completa\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "fullscreen_action",
+            "params": {"operation": "toggle"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+
     search_match = re.search(r"\b(?:buscar|busca|consultar)\s+(.+)$", clean)
     if search_match:
         query = search_match.group(1).strip()
