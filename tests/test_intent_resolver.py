@@ -316,6 +316,47 @@ def test_resolve_download_actions():
     }
 
 
+def test_resolve_close_downloads_intent():
+    intent1 = resolve_command_intent("cerrar ventana de descargas")
+    assert intent1 == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "close"},
+        "raw_transcript": "cerrar ventana de descargas",
+        "confidence": 1.0,
+    }
+
+    intent2 = resolve_command_intent("cerrar descargas")
+    assert intent2 == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "close"},
+        "raw_transcript": "cerrar descargas",
+        "confidence": 1.0,
+    }
+
+    intent3 = resolve_command_intent("cerrar panel de descargas")
+    assert intent3 == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "close"},
+        "raw_transcript": "cerrar panel de descargas",
+        "confidence": 1.0,
+    }
+
+
+def test_resolve_close_bookmarks_intent():
+    intent = resolve_command_intent("cerrar ventana de marcadores")
+    assert intent == {
+        "type": "command_intent",
+        "action": "bookmark_action",
+        "params": {"operation": "close"},
+        "raw_transcript": "cerrar ventana de marcadores",
+        "confidence": 1.0,
+    }
+
+
+
 
 
 

@@ -2549,6 +2549,36 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Recargar página" });
           return { success: true, action: "page_reload" };
         }
+        if (op === "open_panel") {
+          if (typeof topWin?.SidebarUI?.toggle === "function") {
+            topWin.SidebarUI.toggle("viewHistorySidebar");
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Historial" });
+          return { success: true, action: "history_open_panel" };
+        }
+        if (op === "open_library") {
+          if (topWin?.PlacesCommandHook?.showPlacesOrganizer) {
+            topWin.PlacesCommandHook.showPlacesOrganizer("History");
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Biblioteca de historial" });
+          return { success: true, action: "history_open_library" };
+        }
+        if (op === "close") {
+          let closedSomething = false;
+          if (topWin?.SidebarUI?.isOpen) {
+            topWin.SidebarUI.hide();
+            closedSomething = true;
+          }
+          try {
+            const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
+            if (organizer && !organizer.closed) {
+              organizer.close();
+              closedSomething = true;
+            }
+          } catch (_) {}
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Historial cerrado" });
+          return { success: true, action: "history_close", closed: closedSomething };
+        }
         break;
       }
 
@@ -2585,6 +2615,16 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           return { success: true, action: "new_private_window" };
         }
         if (op === "close") {
+          // Si hay una ventana secundaria activa (como el Organizador de Descargas/Marcadores), cerrar esa primero
+          try {
+            const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
+            if (organizer && !organizer.closed && (organizer === Services.focus?.activeWindow || Services.wm?.getMostRecentWindow(null) === organizer)) {
+              organizer.close();
+              showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Ventana secundaria cerrada" });
+              return { success: true, action: "close_secondary_window" };
+            }
+          } catch (_) {}
+
           if (typeof topWin?.BrowserCloseWindow === "function") topWin.BrowserCloseWindow();
           else if (typeof topWin?.close === "function") topWin.close();
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Cerrar ventana" });
@@ -2659,6 +2699,22 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Barra de marcadores" });
           return { success: true, action: "bookmark_toggle_toolbar" };
         }
+        if (op === "close") {
+          let closedSomething = false;
+          if (topWin?.SidebarUI?.isOpen) {
+            topWin.SidebarUI.hide();
+            closedSomething = true;
+          }
+          try {
+            const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
+            if (organizer && !organizer.closed) {
+              organizer.close();
+              closedSomething = true;
+            }
+          } catch (_) {}
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Marcadores cerrados" });
+          return { success: true, action: "bookmark_close", closed: closedSomething };
+        }
         break;
       }
 
@@ -2672,6 +2728,24 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           }
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Descargas" });
           return { success: true, action: "download_open_panel" };
+        }
+        if (op === "close") {
+          let closedSomething = false;
+          if (topWin?.DownloadsPanel?.panel?.state === "open" || topWin?.DownloadsPanel?.isPanelOpen) {
+            if (typeof topWin.DownloadsPanel.hidePanel === "function") {
+              topWin.DownloadsPanel.hidePanel();
+              closedSomething = true;
+            }
+          }
+          try {
+            const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
+            if (organizer && !organizer.closed) {
+              organizer.close();
+              closedSomething = true;
+            }
+          } catch (_) {}
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Descargas cerradas" });
+          return { success: true, action: "download_close", closed: closedSomething };
         }
         if (op === "open_library") {
           openUrlInBrowser(topWin, "about:downloads");

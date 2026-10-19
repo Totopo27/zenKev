@@ -50,15 +50,15 @@ interface CommandIntentPayload {
 - **`tab_action`**:
   `params: { operation: "next" | "prev" | "new" | "close" | "pin" | "unpin" | "duplicate" | "toggle_mute" }`
 - **`history_action`**:
-  `params: { operation: "back" | "forward" | "reload" }`
+  `params: { operation: "back" | "forward" | "reload" | "open_panel" | "open_library" | "close" }`
 - **`zoom_action`**:
   `params: { operation: "in" | "out" | "reset" }`
 - **`window_action`**:
   `params: { operation: "new" | "new_private" | "close" | "minimize" | "maximize" }`
 - **`bookmark_action`**:
-  `params: { operation: "save" | "remove" | "toggle_sidebar" | "library" | "toggle_toolbar" }`
+  `params: { operation: "save" | "remove" | "toggle_sidebar" | "library" | "toggle_toolbar" | "close" }`
 - **`download_action`**:
-  `params: { operation: "open_panel" | "open_library" | "clear" }`
+  `params: { operation: "open_panel" | "open_library" | "clear" | "close" }`
 - **`fullscreen_action`**:
   `params: { operation: "toggle" }`
 

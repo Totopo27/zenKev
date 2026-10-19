@@ -69,6 +69,15 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
         return _make_intent("voice_state", {"state": "active"}, transcript, confidence)
 
     # Control de Historial
+    if re.search(r"\b(?:cerrar\s+(?:(?:la\s+)?ventana\s+de\s+)?historial|cerrar\s+panel\s+de\s+historial|ocultar\s+historial)\b", clean):
+        return _make_intent("history_action", {"operation": "close"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir\s+ventana\s+de\s+historial|biblioteca\s+de\s+historial|gestor\s+de\s+historial)\b", clean):
+        return _make_intent("history_action", {"operation": "open_library"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir|mostrar|ver|alternar)\s+(?:el\s+)?historial|panel\s+de\s+historial|barra\s+lateral\s+de\s+historial\b", clean):
+        return _make_intent("history_action", {"operation": "open_panel"}, transcript, confidence)
+
     if re.search(r"\b(?:ir\s+)?(?:atr[aá]s|volver|retroceder)|p[aá]gina\s+anterior\b", clean):
         return _make_intent("history_action", {"operation": "back"}, transcript, confidence)
 
@@ -88,14 +97,46 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
     if re.search(r"\b(?:restablecer\s+zoom|zoom\s+normal|zoom\s+100)\b", clean):
         return _make_intent("zoom_action", {"operation": "reset"}, transcript, confidence)
 
+    # Control de Marcadores
+    if re.search(r"\b(?:cerrar\s+(?:(?:la\s+)?ventana\s+de\s+)?marcadores|cerrar\s+panel\s+de\s+marcadores|ocultar\s+marcadores)\b", clean):
+        return _make_intent("bookmark_action", {"operation": "close"}, transcript, confidence)
+
+    if re.search(r"\b(?:marcar(?:\s+esta)?\s+p[aá]gina|guardar\s+(?:en\s+)?marcadores|guardar\s+marcador|a[nñ]adir\s+a\s+marcadores|agregar\s+a\s+marcadores)\b", clean):
+        return _make_intent("bookmark_action", {"operation": "save"}, transcript, confidence)
+
+    if re.search(r"\b(?:eliminar|quitar|borrar|remover)\s+marcador(?:\s+de\s+(?:esta\s+)?p[aá]gina)?|desmarcar(?:\s+esta)?\s+p[aá]gina\b", clean):
+        return _make_intent("bookmark_action", {"operation": "remove"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir\s+ventana\s+de\s+marcadores|biblioteca\s+de\s+marcadores|organizador\s+de\s+marcadores|gestor\s+de\s+marcadores)\b", clean):
+        return _make_intent("bookmark_action", {"operation": "library"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir|mostrar|ver|alternar)\s+(?:los\s+)?marcadores|barra\s+lateral\s+de\s+marcadores|panel\s+de\s+marcadores\b", clean):
+        return _make_intent("bookmark_action", {"operation": "toggle_sidebar"}, transcript, confidence)
+
+    if re.search(r"\b(?:barra\s+de\s+marcadores|mostrar\s+barra\s+de\s+marcadores|alternar\s+barra\s+de\s+marcadores)\b", clean):
+        return _make_intent("bookmark_action", {"operation": "toggle_toolbar"}, transcript, confidence)
+
+    # Control de Descargas
+    if re.search(r"\b(?:cerrar\s+(?:(?:la\s+)?ventana\s+de\s+)?descargas|cerrar\s+panel\s+de\s+descargas|ocultar\s+descargas)\b", clean):
+        return _make_intent("download_action", {"operation": "close"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir\s+ventana\s+de\s+descargas|biblioteca\s+de\s+descargas|p[aá]gina\s+de\s+descargas|gestor\s+de\s+descargas)\b", clean):
+        return _make_intent("download_action", {"operation": "open_library"}, transcript, confidence)
+
+    if re.search(r"\b(?:limpiar|borrar|vaciar)\s+(?:las\s+)?descargas\b", clean):
+        return _make_intent("download_action", {"operation": "clear"}, transcript, confidence)
+
+    if re.search(r"\b(?:abrir|mostrar|ver)\s+(?:las\s+)?descargas|panel\s+de\s+descargas|mis\s+descargas|^descargas$\b", clean):
+        return _make_intent("download_action", {"operation": "open_panel"}, transcript, confidence)
+
     # Control de Ventanas
     if re.search(r"\b(?:(?:nueva\s+)?ventana\s+privada|(?:modo\s+)?inc[oó]gnito)\b", clean):
         return _make_intent("window_action", {"operation": "new_private"}, transcript, confidence)
 
-    if re.search(r"\b(?:nueva|abrir|crear)\s+ventana\b", clean):
+    if re.search(r"\b(?:nueva|abrir|crear)\s+ventana\b", clean) and not re.search(r"\b(?:descargas|marcadores|historial)\b", clean):
         return _make_intent("window_action", {"operation": "new"}, transcript, confidence)
 
-    if re.search(r"\b(?:cerrar\s+(?:esta\s+)?ventana)\b", clean):
+    if re.search(r"\b(?:cerrar\s+(?:esta\s+)?ventana)\b", clean) and not re.search(r"\b(?:descargas|marcadores|historial)\b", clean):
         return _make_intent("window_action", {"operation": "close"}, transcript, confidence)
 
     if re.search(r"\b(?:minimizar\s+ventana|minimizar)\b", clean):
@@ -103,32 +144,6 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
 
     if re.search(r"\b(?:maximizar\s+ventana|maximizar)\b", clean):
         return _make_intent("window_action", {"operation": "maximize"}, transcript, confidence)
-
-    # Control de Marcadores
-    if re.search(r"\b(?:marcar(?:\s+esta)?\s+p[aá]gina|guardar\s+(?:en\s+)?marcadores|guardar\s+marcador|a[nñ]adir\s+a\s+marcadores|agregar\s+a\s+marcadores)\b", clean):
-        return _make_intent("bookmark_action", {"operation": "save"}, transcript, confidence)
-
-    if re.search(r"\b(?:eliminar|quitar|borrar|remover)\s+marcador(?:\s+de\s+(?:esta\s+)?p[aá]gina)?|desmarcar(?:\s+esta)?\s+p[aá]gina\b", clean):
-        return _make_intent("bookmark_action", {"operation": "remove"}, transcript, confidence)
-
-    if re.search(r"\b(?:abrir|mostrar|ver|alternar)\s+(?:los\s+)?marcadores|barra\s+lateral\s+de\s+marcadores|panel\s+de\s+marcadores\b", clean):
-        return _make_intent("bookmark_action", {"operation": "toggle_sidebar"}, transcript, confidence)
-
-    if re.search(r"\b(?:biblioteca|organizador|gestor)\s+de\s+marcadores\b", clean):
-        return _make_intent("bookmark_action", {"operation": "library"}, transcript, confidence)
-
-    if re.search(r"\b(?:barra\s+de\s+marcadores|mostrar\s+barra\s+de\s+marcadores|alternar\s+barra\s+de\s+marcadores)\b", clean):
-        return _make_intent("bookmark_action", {"operation": "toggle_toolbar"}, transcript, confidence)
-
-    # Control de Descargas
-    if re.search(r"\b(?:biblioteca|p[aá]gina|gestor)\s+de\s+descargas\b", clean):
-        return _make_intent("download_action", {"operation": "open_library"}, transcript, confidence)
-
-    if re.search(r"\b(?:limpiar|borrar|vaciar)\s+(?:las\s+)?descargas\b", clean):
-        return _make_intent("download_action", {"operation": "clear"}, transcript, confidence)
-
-    if re.search(r"\b(?:abrir|mostrar|ver)?\s*(?:las\s+)?descargas|panel\s+de\s+descargas|mis\s+descargas\b", clean):
-        return _make_intent("download_action", {"operation": "open_panel"}, transcript, confidence)
 
     # Control de Pestañas
     if re.search(r"\b(?:siguiente|pr[oó]xima)\s+pesta[ñn]a\b", clean):

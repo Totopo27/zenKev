@@ -114,6 +114,17 @@ const parsedDl = parseIncomingVoicePayload(dlPayload);
 assert.equal(parsedDl.action, "download_action");
 assert.equal(parsedDl.params.operation, "open_panel");
 
+const dlClosePayload = JSON.stringify({
+  type: "command_intent",
+  action: "download_action",
+  params: { operation: "close" },
+  raw_transcript: "cerrar ventana de descargas",
+  confidence: 0.98,
+});
+const parsedDlClose = parseIncomingVoicePayload(dlClosePayload);
+assert.equal(parsedDlClose.action, "download_action");
+assert.equal(parsedDlClose.params.operation, "close");
+
 // 5. Validar Fullscreen Action
 const fsPayload = JSON.stringify({
   type: "command_intent",
