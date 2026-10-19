@@ -19,8 +19,12 @@ import os
 import sys
 import time
 import json
+import re
 import tempfile
 import subprocess
+import urllib.request
+import urllib.error
+from typing import Optional
 from intent_resolver import resolve_command_intent
 
 # Auto-instalación transparente de dependencias críticas si faltan en el entorno
@@ -177,18 +181,114 @@ def send_unix_socket(socket_path: str, message: str) -> bool:
     except Exception:
         return False
 
+KEV_BRIDGE_URL = os.environ.get("ZENKEV_ENDPOINT", "http://127.0.0.1:8080")
+
+def query_kev_bridge(transcript: str, timeout: float = 0.25) -> Optional[dict]:
+    """
+    Consulta al servidor de inferencia Kev-4B v6 (serve_zenkev_bridge.py) en localhost:8080.
+    Retorna el dict de triage con subsystem, action y confianzas, o None si no responde.
+    """
+    req_body = json.dumps({"transcript": transcript}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{KEV_BRIDGE_URL}/",
+        data=req_body,
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    return None
+
+def _extract_tab_target(transcript: str) -> Optional[str]:
+    """Extrae el nombre o término objetivo de una pestaña ignorando stopwords deícticas."""
+    clean = transcript.lower()
+    m = re.search(r"\b(?:pesta[ñn]a\s+(?:de\s+)?)(.+)$", clean)
+    if m:
+        target = m.group(1).strip()
+        if target not in ("esta", "actual", "este"):
+            return target
+    return None
+
+def resolve_intent_with_kev_bridge(transcript: str, confidence: float = 1.0) -> Optional[dict]:
+    """
+    Resuelve el Command Intent utilizando primero el modelo de IA Kev-4B si el servidor
+    está activo, y haciendo fallback transparente a resolve_command_intent si está offline.
+    """
+    kev_result = query_kev_bridge(transcript)
+    if kev_result and kev_result.get("action"):
+        action = kev_result["action"]
+        subsystem = kev_result.get("subsystem", "")
+        action_conf = float(kev_result.get("action_conf", 0.0))
+        subsystem_conf = float(kev_result.get("subsystem_conf", 0.0))
+
+        # Filtrar ruido conversacional o chat detectado por Kev-4B con alta confianza
+        if (action == "none" or subsystem == "llm_agent") and (action_conf >= 0.70 or subsystem_conf >= 0.70):
+            log_event(f"ℹ️ Kev-4B clasificó la entrada como no accionable ({action}/{subsystem}) [conf={action_conf:.2f}]")
+            return None
+
+        # Exigir umbral mínimo de confianza para despachar acciones predichas
+        if action_conf >= 0.60:
+            if action == "close_tab":
+                target = _extract_tab_target(transcript)
+                params = {"operation": "close"}
+                if target:
+                    params["target"] = target
+                return {
+                    "type": "command_intent",
+                    "action": "tab_action",
+                    "params": params,
+                    "raw_transcript": transcript,
+                    "confidence": action_conf,
+                }
+            elif action == "new_tab":
+                return {
+                    "type": "command_intent",
+                    "action": "tab_action",
+                    "params": {"operation": "new"},
+                    "raw_transcript": transcript,
+                    "confidence": action_conf,
+                }
+            elif action == "switch_tab":
+                target = _extract_tab_target(transcript)
+                params = {"operation": "switch"}
+                if target:
+                    params["target"] = target
+                return {
+                    "type": "command_intent",
+                    "action": "tab_action",
+                    "params": params,
+                    "raw_transcript": transcript,
+                    "confidence": action_conf,
+                }
+            elif action == "scroll":
+                direction = "up" if any(w in transcript.lower() for w in ["arriba", "subir", "sube"]) else "down"
+                return {
+                    "type": "command_intent",
+                    "action": "scroll",
+                    "params": {"direction": direction},
+                    "raw_transcript": transcript,
+                    "confidence": action_conf,
+                }
+
+    # Fallback al resolvedor determinista local
+    return resolve_command_intent(transcript, confidence)
+
 def send_voice_command(transcript: str) -> bool:
     """
     Envía el comando transcrito al motor zen-voice-engine:
-    1. Resuelve la intención como Command Intent estructurado (ADR-0001).
+    1. Resuelve la intención con Kev-4B v6 (puente IA) o fallback a intent_resolver (ADR-0001).
     2. En Windows, intenta prioritariamente por Named Pipe (interrupción de kernel, cero latencia de disco).
     3. En Unix/macOS, intenta prioritariamente por Unix Domain Socket (/tmp/zen_voice_ipc.sock).
     4. Si el canal reactivo no está disponible o falla, realiza fallback automático al archivo IPC.
     """
-    intent = resolve_command_intent(transcript)
+    intent = resolve_intent_with_kev_bridge(transcript)
     if intent:
         payload = json.dumps(intent)
-        log_event(f"🎯 Command Intent tipado: {intent['action']} ({intent.get('params', {})})")
+        src = intent.get("source", "intent_resolver")
+        log_event(f"🎯 Command Intent tipado [{src}]: {intent['action']} ({intent.get('params', {})})")
     else:
         payload = json.dumps({
             "type": "command_intent",

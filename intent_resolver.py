@@ -164,9 +164,11 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
         target_name = tab_switch_match.group(1).strip()
         return _make_intent("tab_action", {"operation": "switch", "target": target_name}, transcript, confidence)
 
-    tab_close_target_match = re.search(r"\b(?:cerrar|cierra)\s+(?:la\s+)?pesta[ñn]a\s+de\s+(.+)$", clean)
+    tab_close_target_match = re.search(r"\b(?:cerrar|cierra)\s+(?:la\s+)?pesta[ñn]a\s+(?:de\s+)?(.+)$", clean)
     if tab_close_target_match:
         target_name = tab_close_target_match.group(1).strip()
+        if target_name in ("esta", "actual", "este"):
+            return _make_intent("tab_action", {"operation": "close"}, transcript, confidence)
         return _make_intent("tab_action", {"operation": "close", "target": target_name}, transcript, confidence)
 
     if re.search(r"\b(?:siguiente|pr[oó]xima)\s+pesta[ñn]a\b", clean):

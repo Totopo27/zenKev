@@ -2282,6 +2282,50 @@ export function initZenVoiceNav(topWin) {
   getVoiceEngineClient();
 }
 
+function normalizeSearchText(str) {
+  if (!str) return "";
+  return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+function findMatchingTab(tabs, target) {
+  if (!target || !tabs || tabs.length === 0) return null;
+  const cleanTarget = normalizeSearchText(target);
+  if (!cleanTarget) return null;
+
+  // 1. Coincidencia exacta o inclusión en etiqueta (título de pestaña)
+  for (const t of tabs) {
+    const label = normalizeSearchText(t.label);
+    if (label && (label === cleanTarget || label.includes(cleanTarget))) {
+      return t;
+    }
+  }
+
+  // 2. Coincidencia en título cargado en content
+  for (const t of tabs) {
+    const title = normalizeSearchText(t.linkedBrowser?.contentTitle);
+    if (title && (title === cleanTarget || title.includes(cleanTarget))) {
+      return t;
+    }
+  }
+
+  // 3. Coincidencia en URI / host
+  for (const t of tabs) {
+    const spec = normalizeSearchText(t.linkedBrowser?.currentURI?.spec);
+    const host = normalizeSearchText(t.linkedBrowser?.currentURI?.host);
+    if ((host && host.includes(cleanTarget)) || (spec && spec.includes(cleanTarget))) {
+      return t;
+    }
+  }
+
+  // 4. Coincidencia ordinal si el target es numérico ("1", "2", etc.)
+  const num = parseInt(cleanTarget, 10);
+  if (!isNaN(num) && num >= 1 && num <= tabs.length) {
+    return tabs[num - 1];
+  }
+
+  return null;
+}
+
 export class ZenVoiceNavParent extends JSWindowActorParent {
   constructor() {
     super();
@@ -2522,16 +2566,18 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
             return { success: true, action: "tab_prev" };
           }
           if (op === "close") {
-            const target = (intent.params?.target || "").trim().toLowerCase();
-            let tabToClose = gBrowser.selectedTab;
-            if (target && target !== "esta" && tabs.length > 0) {
-              const matching = tabs.find(t => {
-                const label = (t.label || "").toLowerCase();
-                const uri = (t.linkedBrowser?.currentURI?.spec || "").toLowerCase();
-                return label.includes(target) || uri.includes(target);
-              });
-              if (matching) tabToClose = matching;
+            const target = (intent.params?.target || "").trim();
+            let tabToClose = null;
+            if (target) {
+              tabToClose = findMatchingTab(tabs, target);
+              if (!tabToClose) {
+                showNativeChromeHUD(topWin, { success: false, transcript: intent.raw_transcript, label: `Pestaña no encontrada: ${target}` });
+                return { success: false, action: "tab_close", reason: "tab_not_found", target };
+              }
+            } else {
+              tabToClose = gBrowser.selectedTab;
             }
+
             if (tabToClose) {
               const closedLabel = tabToClose.label || target || "Pestaña";
               gBrowser.removeTab(tabToClose);
@@ -2540,19 +2586,17 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
             }
           }
           if (op === "switch") {
-            const target = (intent.params?.target || "").trim().toLowerCase();
+            const target = (intent.params?.target || "").trim();
             if (target && tabs.length > 0) {
-              const matching = tabs.find(t => {
-                const label = (t.label || "").toLowerCase();
-                const uri = (t.linkedBrowser?.currentURI?.spec || "").toLowerCase();
-                return label.includes(target) || uri.includes(target);
-              });
+              const matching = findMatchingTab(tabs, target);
               if (matching) {
                 gBrowser.selectedTab = matching;
                 showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: `Pestaña: ${matching.label}` });
                 return { success: true, action: "tab_switch", target };
               }
             }
+            showNativeChromeHUD(topWin, { success: false, transcript: intent.raw_transcript, label: `Pestaña no encontrada: ${target}` });
+            return { success: false, action: "tab_switch", reason: "tab_not_found", target };
           }
           if (op === "new") {
             if (typeof gBrowser.addTab === "function") {
@@ -2633,26 +2677,20 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Recargar página" });
           return { success: true, action: "page_reload" };
         }
-        if (op === "open_panel") {
-          if (typeof topWin?.SidebarUI?.toggle === "function") {
-            topWin.SidebarUI.toggle("viewHistorySidebar");
+        if (op === "open_panel" || op === "open_library") {
+          let opened = false;
+          if (typeof topWin?.PlacesCommandHook?.showPlacesOrganizer === "function") {
+            topWin.PlacesCommandHook.showPlacesOrganizer("History");
+            opened = true;
+          } else if (typeof openUrlInBrowser === "function") {
+            openUrlInBrowser(topWin, "about:history");
+            opened = true;
           }
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Historial" });
-          return { success: true, action: "history_open_panel" };
-        }
-        if (op === "open_library") {
-          if (topWin?.PlacesCommandHook?.showPlacesOrganizer) {
-            topWin.PlacesCommandHook.showPlacesOrganizer("History");
-          }
-          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Biblioteca de historial" });
-          return { success: true, action: "history_open_library" };
+          return { success: true, action: "history_open", opened };
         }
         if (op === "close") {
           let closedSomething = false;
-          if (topWin?.SidebarUI?.isOpen) {
-            topWin.SidebarUI.hide();
-            closedSomething = true;
-          }
           try {
             const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
             if (organizer && !organizer.closed) {
@@ -2660,6 +2698,16 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
               closedSomething = true;
             }
           } catch (_) {}
+
+          // Si la pestaña seleccionada es about:history, cerrarla
+          if (!closedSomething && gBrowser?.selectedTab) {
+            const currentSpec = gBrowser.selectedTab.linkedBrowser?.currentURI?.spec || "";
+            if (currentSpec.includes("about:history")) {
+              gBrowser.removeTab(gBrowser.selectedTab);
+              closedSomething = true;
+            }
+          }
+
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Historial cerrado" });
           return { success: true, action: "history_close", closed: closedSomething };
         }
@@ -2761,19 +2809,17 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
             return { success: false, error: String(e) };
           }
         }
-        if (op === "toggle_sidebar") {
-          if (typeof topWin?.SidebarUI?.toggle === "function") {
-            topWin.SidebarUI.toggle("viewBookmarksSidebar");
+        if (op === "toggle_sidebar" || op === "library") {
+          let opened = false;
+          if (typeof topWin?.PlacesCommandHook?.showPlacesOrganizer === "function") {
+            topWin.PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
+            opened = true;
+          } else if (typeof openUrlInBrowser === "function") {
+            openUrlInBrowser(topWin, "about:bookmarks");
+            opened = true;
           }
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Marcadores" });
-          return { success: true, action: "bookmark_toggle_sidebar" };
-        }
-        if (op === "library") {
-          if (topWin?.PlacesCommandHook?.showPlacesOrganizer) {
-            topWin.PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
-          }
-          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Biblioteca de marcadores" });
-          return { success: true, action: "bookmark_library" };
+          return { success: true, action: "bookmark_open", opened };
         }
         if (op === "toggle_toolbar") {
           const bar = topWin?.document?.getElementById("PersonalToolbar");
@@ -2785,10 +2831,6 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         }
         if (op === "close") {
           let closedSomething = false;
-          if (topWin?.SidebarUI?.isOpen) {
-            topWin.SidebarUI.hide();
-            closedSomething = true;
-          }
           try {
             const organizer = Services.wm?.getMostRecentWindow("Places:Organizer");
             if (organizer && !organizer.closed) {
@@ -2796,6 +2838,16 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
               closedSomething = true;
             }
           } catch (_) {}
+
+          // Si la pestaña seleccionada es about:bookmarks, cerrarla
+          if (!closedSomething && gBrowser?.selectedTab) {
+            const currentSpec = gBrowser.selectedTab.linkedBrowser?.currentURI?.spec || "";
+            if (currentSpec.includes("about:bookmarks")) {
+              gBrowser.removeTab(gBrowser.selectedTab);
+              closedSomething = true;
+            }
+          }
+
           showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Marcadores cerrados" });
           return { success: true, action: "bookmark_close", closed: closedSomething };
         }
