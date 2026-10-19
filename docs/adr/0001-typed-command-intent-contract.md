@@ -48,7 +48,7 @@ interface CommandIntentPayload {
 - **`voice_state`**:
   `params: { state: "muted" | "active" }`
 - **`tab_action`**:
-  `params: { operation: "next" | "prev" | "new" | "close" | "pin" | "unpin" | "duplicate" | "toggle_mute" }`
+  `params: { operation: "next" | "prev" | "new" | "close" | "pin" | "unpin" | "duplicate" | "toggle_mute" | "switch", target?: string, url?: string }`
 - **`history_action`**:
   `params: { operation: "back" | "forward" | "reload" | "open_panel" | "open_library" | "close" }`
 - **`zoom_action`**:

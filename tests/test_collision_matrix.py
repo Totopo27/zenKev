@@ -67,6 +67,16 @@ COLLISION_TEST_CASES = [
     ("clonar pestaña", "tab_action", {"operation": "duplicate"}),
     ("silenciar pestaña", "tab_action", {"operation": "toggle_mute"}),
     ("mutear pestaña", "tab_action", {"operation": "toggle_mute"}),
+    ("ir a pestaña nueva", "tab_action", {"operation": "new"}),
+    ("abrir pestaña de descargas", "tab_action", {"operation": "new", "url": "about:downloads"}),
+    ("ir a pestaña de descargas", "tab_action", {"operation": "switch", "target": "descargas"}),
+    ("cerrar pestaña de descargas", "tab_action", {"operation": "close", "target": "descargas"}),
+    ("ir a pestaña de youtube", "tab_action", {"operation": "switch", "target": "youtube"}),
+    ("cerrar pestaña de youtube", "tab_action", {"operation": "close", "target": "youtube"}),
+    ("ventana de marcadores", "bookmark_action", {"operation": "library"}),
+    ("ir a ventana de marcadores", "bookmark_action", {"operation": "library"}),
+    ("ventana de descargas", "download_action", {"operation": "open_library"}),
+    ("ir a ventana de descargas", "download_action", {"operation": "open_library"}),
 
     # --- Historial vs Navegación ---
     ("abrir ventana de historial", "history_action", {"operation": "open_library"}),

@@ -2521,16 +2521,45 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
             showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña anterior" });
             return { success: true, action: "tab_prev" };
           }
-          if (op === "close" && gBrowser.selectedTab) {
-            gBrowser.removeTab(gBrowser.selectedTab);
-            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña cerrada" });
-            return { success: true, action: "tab_close" };
+          if (op === "close") {
+            const target = (intent.params?.target || "").trim().toLowerCase();
+            let tabToClose = gBrowser.selectedTab;
+            if (target && target !== "esta" && tabs.length > 0) {
+              const matching = tabs.find(t => {
+                const label = (t.label || "").toLowerCase();
+                const uri = (t.linkedBrowser?.currentURI?.spec || "").toLowerCase();
+                return label.includes(target) || uri.includes(target);
+              });
+              if (matching) tabToClose = matching;
+            }
+            if (tabToClose) {
+              const closedLabel = tabToClose.label || target || "Pestaña";
+              gBrowser.removeTab(tabToClose);
+              showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: `Pestaña cerrada: ${closedLabel}` });
+              return { success: true, action: "tab_close", target: target || null };
+            }
+          }
+          if (op === "switch") {
+            const target = (intent.params?.target || "").trim().toLowerCase();
+            if (target && tabs.length > 0) {
+              const matching = tabs.find(t => {
+                const label = (t.label || "").toLowerCase();
+                const uri = (t.linkedBrowser?.currentURI?.spec || "").toLowerCase();
+                return label.includes(target) || uri.includes(target);
+              });
+              if (matching) {
+                gBrowser.selectedTab = matching;
+                showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: `Pestaña: ${matching.label}` });
+                return { success: true, action: "tab_switch", target };
+              }
+            }
           }
           if (op === "new") {
             if (typeof gBrowser.addTab === "function") {
-              gBrowser.addTab("about:newtab", { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+              const url = intent.params?.url || "about:newtab";
+              gBrowser.addTab(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
               showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Nueva pestaña" });
-              return { success: true, action: "tab_new" };
+              return { success: true, action: "tab_new", url };
             }
           }
           if (op === "pin" && gBrowser?.selectedTab) {

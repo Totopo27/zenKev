@@ -107,7 +107,7 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
     if re.search(r"\b(?:eliminar|quitar|borrar|remover)\s+marcador(?:\s+de\s+(?:esta\s+)?p[aá]gina)?|desmarcar(?:\s+esta)?\s+p[aá]gina\b", clean):
         return _make_intent("bookmark_action", {"operation": "remove"}, transcript, confidence)
 
-    if re.search(r"\b(?:abrir\s+ventana\s+de\s+marcadores|biblioteca\s+de\s+marcadores|organizador\s+de\s+marcadores|gestor\s+de\s+marcadores)\b", clean):
+    if re.search(r"\b(?:(?:ir\s+a\s+|abrir\s+)?(?:la\s+)?ventana\s+de\s+marcadores|biblioteca\s+de\s+marcadores|organizador\s+de\s+marcadores|gestor\s+de\s+marcadores|^ventana\s+de\s+marcadores$)\b", clean):
         return _make_intent("bookmark_action", {"operation": "library"}, transcript, confidence)
 
     if re.search(r"\b(?:abrir|mostrar|ver|alternar)\s+(?:los\s+)?marcadores|barra\s+lateral\s+de\s+marcadores|panel\s+de\s+marcadores\b", clean):
@@ -120,7 +120,7 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
     if re.search(r"\b(?:cerrar\s+(?:(?:la\s+)?ventana\s+de\s+)?descargas|cerrar\s+panel\s+de\s+descargas|ocultar\s+descargas)\b", clean):
         return _make_intent("download_action", {"operation": "close"}, transcript, confidence)
 
-    if re.search(r"\b(?:abrir\s+ventana\s+de\s+descargas|biblioteca\s+de\s+descargas|p[aá]gina\s+de\s+descargas|gestor\s+de\s+descargas)\b", clean):
+    if re.search(r"\b(?:(?:ir\s+a\s+|abrir\s+)?(?:la\s+)?ventana\s+de\s+descargas|biblioteca\s+de\s+descargas|p[aá]gina\s+de\s+descargas|gestor\s+de\s+descargas|^ventana\s+de\s+descargas$)\b", clean):
         return _make_intent("download_action", {"operation": "open_library"}, transcript, confidence)
 
     if re.search(r"\b(?:limpiar|borrar|vaciar)\s+(?:las\s+)?descargas\b", clean):
@@ -146,6 +146,29 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
         return _make_intent("window_action", {"operation": "maximize"}, transcript, confidence)
 
     # Control de Pestañas
+    if re.search(r"\b(?:(?:ir\s+a\s+|abrir\s+)?pesta[ñn]a\s+nueva|nueva\s+pesta[ñn]a)\b", clean):
+        return _make_intent("tab_action", {"operation": "new"}, transcript, confidence)
+
+    tab_special_match = re.search(r"\b(?:abrir|nueva)\s+pesta[ñn]a\s+de\s+(descargas|marcadores|historial)\b", clean)
+    if tab_special_match:
+        target = tab_special_match.group(1)
+        url_map = {
+            "descargas": "about:downloads",
+            "marcadores": "about:bookmarks",
+            "historial": "about:history",
+        }
+        return _make_intent("tab_action", {"operation": "new", "url": url_map[target]}, transcript, confidence)
+
+    tab_switch_match = re.search(r"\b(?:ir\s+a\s+|cambiar\s+a\s+|ver\s+)(?:la\s+)?pesta[ñn]a\s+(?:de\s+)?(.+)$", clean)
+    if tab_switch_match:
+        target_name = tab_switch_match.group(1).strip()
+        return _make_intent("tab_action", {"operation": "switch", "target": target_name}, transcript, confidence)
+
+    tab_close_target_match = re.search(r"\b(?:cerrar|cierra)\s+(?:la\s+)?pesta[ñn]a\s+de\s+(.+)$", clean)
+    if tab_close_target_match:
+        target_name = tab_close_target_match.group(1).strip()
+        return _make_intent("tab_action", {"operation": "close", "target": target_name}, transcript, confidence)
+
     if re.search(r"\b(?:siguiente|pr[oó]xima)\s+pesta[ñn]a\b", clean):
         return _make_intent("tab_action", {"operation": "next"}, transcript, confidence)
 
@@ -189,8 +212,10 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
     # Navegación a Sitio Web o URL
     nav_match = re.search(r"\b(?:abrir|abre|ir a|navegar a)\s+(.+)$", clean)
     if nav_match:
-        target_info = resolve_site_target(nav_match.group(1))
-        return _make_intent("navigate", target_info, transcript, confidence)
+        # No secuestrar comandos de entidades internas del navegador
+        if not re.search(r"\b(?:pesta[ñn]a|ventana|descargas|marcadores|historial)\b", clean):
+            target_info = resolve_site_target(nav_match.group(1))
+            return _make_intent("navigate", target_info, transcript, confidence)
 
     # Badges Numéricos (AOM)
     badge_match = re.search(r"\b(?:clic(?: en)?(?: el)?|seleccionar|badge|opci[oó]n|n[uú]mero)\s+(\d+)\b", clean)
