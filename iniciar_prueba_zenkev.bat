@@ -90,10 +90,14 @@ if exist "!LOCAL_ENGINE!" (
     REM Copiar tambien a los perfiles de usuario para resolucion directa
     for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
         copy /y "!LOCAL_ENGINE!" "%%D\zen-voice-engine.exe" >nul 2>&1
-        copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
     )
 )
 copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
+copy /y "%~dp0intent_resolver.py" "!ZEN_DIR!\intent_resolver.py" >nul
+for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+    copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
+    copy /y "%~dp0intent_resolver.py" "%%D\intent_resolver.py" >nul 2>&1
+)
 
 REM 2.5. Verificar e instalar dependencias de microfono/audio de forma automatica
 if "!PYTHON_EXE!" NEQ "" (
@@ -102,6 +106,30 @@ if "!PYTHON_EXE!" NEQ "" (
         echo [*] Instalando dependencias de audio de Python: sounddevice, numpy, SpeechRecognition...
         !PYTHON_EXE! -m pip install --quiet sounddevice numpy SpeechRecognition >nul 2>&1
     )
+)
+
+REM 2.6. Verificar presencia del motor y modelo local Parakeet TDT (Offline ASR)
+set "PARAKEET_CLI=%~dp0tools\parakeet\parakeet-v0.6.1-bin-win-cpu-x64\parakeet-cli.exe"
+set "PARAKEET_MODEL=%~dp0models\tdt-0.6b-v3-q4_k.gguf"
+
+if not exist "!PARAKEET_CLI!" (
+    echo [*] Descargando motor de voz local parakeet-cli (1.7 MB)...
+    if not exist "%~dp0tools\parakeet" mkdir "%~dp0tools\parakeet" >nul 2>&1
+    curl.exe -L -s -o "%~dp0tools\parakeet\parakeet-bin.zip" "https://github.com/mudler/parakeet.cpp/releases/download/v0.6.1/parakeet-v0.6.1-bin-win-cpu-x64.zip"
+    if exist "%~dp0tools\parakeet\parakeet-bin.zip" (
+        powershell -NoProfile -Command "Expand-Archive -Path '%~dp0tools\parakeet\parakeet-bin.zip' -DestinationPath '%~dp0tools\parakeet' -Force" >nul 2>&1
+        del /f /q "%~dp0tools\parakeet\parakeet-bin.zip" >nul 2>&1
+    )
+)
+
+if not exist "!PARAKEET_MODEL!" (
+    echo [*] Descargando modelo de voz local Parakeet TDT FastConformer (643 MB, una sola vez)...
+    echo     Esto permitira navegacion por voz 100%% offline, privada y sin telemetria.
+    if not exist "%~dp0models" mkdir "%~dp0models" >nul 2>&1
+    curl.exe -L --progress-bar -o "!PARAKEET_MODEL!" "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q4_k.gguf"
+)
+if exist "!PARAKEET_MODEL!" (
+    echo [OK] Motor de voz local Parakeet TDT listo para navegacion 100%% offline.
 )
 
 REM 3. Iniciar el servidor local de inferencia Kev-4B v6 si no esta corriendo

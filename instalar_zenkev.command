@@ -135,6 +135,7 @@ if [ -d "$PROFILES_DIR" ]; then
     for profile in "$PROFILES_DIR"/*; do
         if [ -d "$profile" ]; then
             cp -f "zen_live_mic.py" "$profile/zen_live_mic.py" 2>/dev/null || true
+            cp -f "intent_resolver.py" "$profile/intent_resolver.py" 2>/dev/null || true
             if [ -n "$ENGINE_SRC" ]; then
                 cp -f "$ENGINE_SRC" "$profile/zen-voice-engine" 2>/dev/null || true
                 chmod +x "$profile/zen-voice-engine" 2>/dev/null || true

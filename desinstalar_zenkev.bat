@@ -68,9 +68,11 @@ if %ERRORLEVEL% NEQ 0 (
 REM 4. Limpiar archivos de zenKev en el directorio de Zen Browser
 if exist "!ZEN_DIR!\zen-voice-engine.exe" del /f /q "!ZEN_DIR!\zen-voice-engine.exe" >nul 2>&1
 if exist "!ZEN_DIR!\zen_live_mic.py" del /f /q "!ZEN_DIR!\zen_live_mic.py" >nul 2>&1
+if exist "!ZEN_DIR!\intent_resolver.py" del /f /q "!ZEN_DIR!\intent_resolver.py" >nul 2>&1
 for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
     if exist "%%D\zen-voice-engine.exe" del /f /q "%%D\zen-voice-engine.exe" >nul 2>&1
     if exist "%%D\zen_live_mic.py" del /f /q "%%D\zen_live_mic.py" >nul 2>&1
+    if exist "%%D\intent_resolver.py" del /f /q "%%D\intent_resolver.py" >nul 2>&1
 )
 
 echo.

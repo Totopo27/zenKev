@@ -202,17 +202,45 @@ if not exist "!ENGINE_SRC!" set "ENGINE_SRC=%~dp0modules\voice-engine\target\deb
 if exist "!ENGINE_SRC!" (
     echo [*] Copiando motor zen-voice-engine.exe a la carpeta de Zen Browser...
     copy /y "!ENGINE_SRC!" "!ZEN_DIR!\zen-voice-engine.exe" >nul
-    for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
-        copy /y "!ENGINE_SRC!" "%%D\zen-voice-engine.exe" >nul 2>&1
-        copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
-    )
 ) else (
     echo [!] Aviso: zen-voice-engine.exe no encontrado en el paquete.
 )
 
+echo [*] Sincronizando scripts de audio, voz y resolucion de intents...
 copy /y "%~dp0zen_live_mic.py" "!ZEN_DIR!\zen_live_mic.py" >nul
-echo [OK] Archivos de audio y motor sincronizados.
+copy /y "%~dp0intent_resolver.py" "!ZEN_DIR!\intent_resolver.py" >nul
+
+for /d %%D in ("%APPDATA%\zen\Profiles\*") do (
+    if exist "!ENGINE_SRC!" copy /y "!ENGINE_SRC!" "%%D\zen-voice-engine.exe" >nul 2>&1
+    copy /y "%~dp0zen_live_mic.py" "%%D\zen_live_mic.py" >nul 2>&1
+    copy /y "%~dp0intent_resolver.py" "%%D\intent_resolver.py" >nul 2>&1
+)
+echo [OK] Archivos de audio, motor y resolucion sincronizados.
 echo.
+
+REM 5.5. Verificar presencia del motor y modelo local Parakeet TDT (Offline ASR)
+set "PARAKEET_CLI=%~dp0tools\parakeet\parakeet-v0.6.1-bin-win-cpu-x64\parakeet-cli.exe"
+set "PARAKEET_MODEL=%~dp0models\tdt-0.6b-v3-q4_k.gguf"
+
+if not exist "!PARAKEET_CLI!" (
+    echo [*] Descargando motor de voz local parakeet-cli (1.7 MB)...
+    if not exist "%~dp0tools\parakeet" mkdir "%~dp0tools\parakeet" >nul 2>&1
+    curl.exe -L -s -o "%~dp0tools\parakeet\parakeet-bin.zip" "https://github.com/mudler/parakeet.cpp/releases/download/v0.6.1/parakeet-v0.6.1-bin-win-cpu-x64.zip"
+    if exist "%~dp0tools\parakeet\parakeet-bin.zip" (
+        powershell -NoProfile -Command "Expand-Archive -Path '%~dp0tools\parakeet\parakeet-bin.zip' -DestinationPath '%~dp0tools\parakeet' -Force" >nul 2>&1
+        del /f /q "%~dp0tools\parakeet\parakeet-bin.zip" >nul 2>&1
+    )
+)
+
+if not exist "!PARAKEET_MODEL!" (
+    echo [*] Descargando modelo de voz local Parakeet TDT FastConformer (643 MB, una sola vez)...
+    echo     Esto permitira navegacion por voz 100%% offline, privada y sin telemetria.
+    if not exist "%~dp0models" mkdir "%~dp0models" >nul 2>&1
+    curl.exe -L --progress-bar -o "!PARAKEET_MODEL!" "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q4_k.gguf"
+)
+if exist "!PARAKEET_MODEL!" (
+    echo [OK] Motor de voz local Parakeet TDT configurado para navegacion 100%% offline.
+)
 
 REM 6. Parchear omni.ja con los modulos de voz de zenKev
 echo [*] Parcheando modulos del navegador (omni.ja)...

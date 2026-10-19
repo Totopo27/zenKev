@@ -55,6 +55,7 @@ if [ -d "$PROFILES_DIR" ]; then
         if [ -d "$profile" ]; then
             rm -f "$profile/zen-voice-engine" 2>/dev/null || true
             rm -f "$profile/zen_live_mic.py" 2>/dev/null || true
+            rm -f "$profile/intent_resolver.py" 2>/dev/null || true
             rm -f "$profile/zenkev_debug.log" 2>/dev/null || true
         fi
     done

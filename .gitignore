@@ -24,6 +24,12 @@ Thumbs.db
 .atl/
 *.backup*
 
+# Models & Local Weights
+models/
+tools/
+*.gguf
+*.bin
+
 # Environment & Secrets
 .env
 .env.*
