@@ -2554,6 +2554,87 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         return { success: true, action: "voice_state", state: intent.params?.state };
       }
 
+      case "history_action": {
+        const op = intent.params?.operation;
+        const gBrowser = topWin?.gBrowser;
+        if (op === "back") {
+          if (gBrowser?.canGoBack) gBrowser.goBack();
+          else if (gBrowser?.selectedBrowser?.canGoBack) gBrowser.selectedBrowser.goBack();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Navegar atrás" });
+          return { success: true, action: "history_back" };
+        }
+        if (op === "forward") {
+          if (gBrowser?.canGoForward) gBrowser.goForward();
+          else if (gBrowser?.selectedBrowser?.canGoForward) gBrowser.selectedBrowser.goForward();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Navegar adelante" });
+          return { success: true, action: "history_forward" };
+        }
+        if (op === "reload") {
+          if (gBrowser?.selectedTab) gBrowser.reloadTab(gBrowser.selectedTab);
+          else if (topWin?.BrowserReload) topWin.BrowserReload();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Recargar página" });
+          return { success: true, action: "page_reload" };
+        }
+        break;
+      }
+
+      case "zoom_action": {
+        const op = intent.params?.operation;
+        if (op === "in") {
+          if (topWin?.FullZoom?.enlarge) topWin.FullZoom.enlarge();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Aumentar zoom" });
+          return { success: true, action: "zoom_in" };
+        }
+        if (op === "out") {
+          if (topWin?.FullZoom?.reduce) topWin.FullZoom.reduce();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Reducir zoom" });
+          return { success: true, action: "zoom_out" };
+        }
+        if (op === "reset") {
+          if (topWin?.FullZoom?.reset) topWin.FullZoom.reset();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Zoom 100%" });
+          return { success: true, action: "zoom_reset" };
+        }
+        break;
+      }
+
+      case "window_action": {
+        const op = intent.params?.operation;
+        if (op === "new") {
+          if (typeof topWin?.OpenBrowserWindow === "function") topWin.OpenBrowserWindow();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Nueva ventana" });
+          return { success: true, action: "new_window" };
+        }
+        if (op === "new_private") {
+          if (typeof topWin?.OpenBrowserWindow === "function") topWin.OpenBrowserWindow({ private: true });
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Nueva ventana privada" });
+          return { success: true, action: "new_private_window" };
+        }
+        if (op === "close") {
+          if (typeof topWin?.BrowserCloseWindow === "function") topWin.BrowserCloseWindow();
+          else if (typeof topWin?.close === "function") topWin.close();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Cerrar ventana" });
+          return { success: true, action: "close_window" };
+        }
+        if (op === "minimize") {
+          if (typeof topWin?.minimize === "function") topWin.minimize();
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Ventana minimizada" });
+          return { success: true, action: "minimize_window" };
+        }
+        if (op === "maximize") {
+          let isMax = false;
+          if (topWin?.windowState === topWin?.STATE_MAXIMIZED) {
+            if (typeof topWin?.restore === "function") topWin.restore();
+          } else {
+            if (typeof topWin?.maximize === "function") topWin.maximize();
+            isMax = true;
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: isMax ? "Ventana maximizada" : "Ventana restaurada" });
+          return { success: true, action: "toggle_maximize_window", maximized: isMax };
+        }
+        break;
+      }
+
       default:
         return await this.processVoiceCommand(intent.raw_transcript || "");
     }

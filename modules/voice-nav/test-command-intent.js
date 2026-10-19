@@ -57,7 +57,41 @@ const parsedBadge = parseIncomingVoicePayload(badgePayload);
 assert.equal(parsedBadge.action, "click_badge");
 assert.equal(parsedBadge.params.badge_index, 4);
 
-// 3. Validar Fallback para texto plano heredado
+// 3. Validar History & Zoom Actions
+const historyPayload = JSON.stringify({
+  type: "command_intent",
+  action: "history_action",
+  params: { operation: "back" },
+  raw_transcript: "ir atrás",
+  confidence: 0.94,
+});
+const parsedHistory = parseIncomingVoicePayload(historyPayload);
+assert.equal(parsedHistory.action, "history_action");
+assert.equal(parsedHistory.params.operation, "back");
+
+const zoomPayload = JSON.stringify({
+  type: "command_intent",
+  action: "zoom_action",
+  params: { operation: "in" },
+  raw_transcript: "aumentar zoom",
+  confidence: 0.93,
+});
+const parsedZoom = parseIncomingVoicePayload(zoomPayload);
+assert.equal(parsedZoom.action, "zoom_action");
+assert.equal(parsedZoom.params.operation, "in");
+
+const windowPayload = JSON.stringify({
+  type: "command_intent",
+  action: "window_action",
+  params: { operation: "new_private" },
+  raw_transcript: "ventana privada",
+  confidence: 0.94,
+});
+const parsedWindow = parseIncomingVoicePayload(windowPayload);
+assert.equal(parsedWindow.action, "window_action");
+assert.equal(parsedWindow.params.operation, "new_private");
+
+// 4. Validar Fallback para texto plano heredado
 const legacyPayload = parseIncomingVoicePayload("texto plano de prueba");
 assert.equal(legacyPayload.action, "legacy_raw");
 assert.equal(legacyPayload.raw_transcript, "texto plano de prueba");

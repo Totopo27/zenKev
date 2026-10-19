@@ -90,6 +90,109 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
             "confidence": confidence,
         }
 
+    # Control de Historial
+    if re.search(r"\b(?:ir\s+)?(?:atr[aá]s|volver|retroceder)|p[aá]gina\s+anterior\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "history_action",
+            "params": {"operation": "back"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:ir\s+)?(?:adelante|avanzar)|p[aá]gina\s+siguiente\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "history_action",
+            "params": {"operation": "forward"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:recargar|actualizar|refrescar)(?:\s+p[aá]gina)?\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "history_action",
+            "params": {"operation": "reload"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    # Control de Zoom
+    if re.search(r"\b(?:zoom\s+m[aá]s|aumentar\s+zoom|m[aá]s\s+zoom)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "zoom_action",
+            "params": {"operation": "in"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:zoom\s+menos|reducir\s+zoom|menos\s+zoom)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "zoom_action",
+            "params": {"operation": "out"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:restablecer\s+zoom|zoom\s+normal|zoom\s+100)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "zoom_action",
+            "params": {"operation": "reset"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    # Control de Ventanas
+    if re.search(r"\b(?:(?:nueva\s+)?ventana\s+privada|(?:modo\s+)?inc[oó]gnito)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "window_action",
+            "params": {"operation": "new_private"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:nueva|abrir|crear)\s+ventana\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "window_action",
+            "params": {"operation": "new"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:cerrar\s+(?:esta\s+)?ventana)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "window_action",
+            "params": {"operation": "close"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:minimizar\s+ventana|minimizar)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "window_action",
+            "params": {"operation": "minimize"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:maximizar\s+ventana|maximizar)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "window_action",
+            "params": {"operation": "maximize"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+
     if re.search(r"\b(?:siguiente|pr[oó]xima)\s+pesta[ñn]a\b", clean):
         return {
             "type": "command_intent",

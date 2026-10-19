@@ -123,6 +123,94 @@ def test_resolve_navigate_intent():
     }
 
 
+def test_resolve_history_actions():
+    back_intent = resolve_command_intent("ir atrás", confidence=0.94)
+    assert back_intent == {
+        "type": "command_intent",
+        "action": "history_action",
+        "params": {"operation": "back"},
+        "raw_transcript": "ir atrás",
+        "confidence": 0.94,
+    }
+
+    forward_intent = resolve_command_intent("página siguiente", confidence=0.92)
+    assert forward_intent == {
+        "type": "command_intent",
+        "action": "history_action",
+        "params": {"operation": "forward"},
+        "raw_transcript": "página siguiente",
+        "confidence": 0.92,
+    }
+
+    reload_intent = resolve_command_intent("recargar página", confidence=0.96)
+    assert reload_intent == {
+        "type": "command_intent",
+        "action": "history_action",
+        "params": {"operation": "reload"},
+        "raw_transcript": "recargar página",
+        "confidence": 0.96,
+    }
+
+
+def test_resolve_zoom_actions():
+    zoom_in = resolve_command_intent("aumentar zoom", confidence=0.93)
+    assert zoom_in == {
+        "type": "command_intent",
+        "action": "zoom_action",
+        "params": {"operation": "in"},
+        "raw_transcript": "aumentar zoom",
+        "confidence": 0.93,
+    }
+
+    zoom_out = resolve_command_intent("reducir zoom", confidence=0.91)
+    assert zoom_out == {
+        "type": "command_intent",
+        "action": "zoom_action",
+        "params": {"operation": "out"},
+        "raw_transcript": "reducir zoom",
+        "confidence": 0.91,
+    }
+
+    zoom_reset = resolve_command_intent("zoom normal", confidence=0.95)
+    assert zoom_reset == {
+        "type": "command_intent",
+        "action": "zoom_action",
+        "params": {"operation": "reset"},
+        "raw_transcript": "zoom normal",
+        "confidence": 0.95,
+    }
+
+
+def test_resolve_window_actions():
+    new_win = resolve_command_intent("nueva ventana", confidence=0.95)
+    assert new_win == {
+        "type": "command_intent",
+        "action": "window_action",
+        "params": {"operation": "new"},
+        "raw_transcript": "nueva ventana",
+        "confidence": 0.95,
+    }
+
+    private_win = resolve_command_intent("ventana privada", confidence=0.94)
+    assert private_win == {
+        "type": "command_intent",
+        "action": "window_action",
+        "params": {"operation": "new_private"},
+        "raw_transcript": "ventana privada",
+        "confidence": 0.94,
+    }
+
+    close_win = resolve_command_intent("cerrar ventana", confidence=0.97)
+    assert close_win == {
+        "type": "command_intent",
+        "action": "window_action",
+        "params": {"operation": "close"},
+        "raw_transcript": "cerrar ventana",
+        "confidence": 0.97,
+    }
+
+
+
 
 
 
