@@ -15,6 +15,7 @@ TARGET_ACTORS = {
     "actors/ZenVoiceNavChild.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceNavChild.sys.mjs"),
     "actors/ZenVoiceEngineClient.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEngineClient.sys.mjs"),
     "actors/ZenVoiceEarconsData.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceEarconsData.sys.mjs"),
+    "actors/ZenVoiceHUD.sys.mjs": os.path.join(ACTORS_DIR, "ZenVoiceHUD.sys.mjs"),
 }
 
 ZEN_VOICE_ACTOR_ENTRY = """
@@ -37,15 +38,15 @@ ZEN_VOICE_ACTOR_ENTRY = """
   },
 """
 
-ZEN_PRELOAD_HOOK = """
-  try {
-    const { initZenVoiceNav } = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
-    if (typeof initZenVoiceNav === "function") {
-      initZenVoiceNav(this);
-    }
-  } catch (e) {
-    console.error("[zenKev] Error initializing ZenVoiceNav in window:", e);
-  }
+ZEN_STARTUP_HOOK = """
+      try {
+        const { initZenVoiceNav } = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+        if (typeof initZenVoiceNav === "function") {
+          initZenVoiceNav(window);
+        }
+      } catch (e) {
+        console.error("[zenKev] Error initializing ZenVoiceNav in delayedStartup:", e);
+      }
 """
 
 def find_omni_path(target_path):
@@ -125,18 +126,33 @@ def patch_omni(browser_dir):
                                 raw_actors = raw_actors[:idx + len(marker)] + ZEN_VOICE_ACTOR_ENTRY + raw_actors[idx + len(marker):]
                                 print("[*] Registered ZenVoiceNav JSWindowActor in ZenActorsManager.sys.mjs")
                         zout.writestr(item, raw_actors.encode("utf-8"))
+                    elif item.filename == "chrome/browser/content/browser/ZenStartup.mjs":
+                        raw_startup = zin.read(item.filename).decode("utf-8", errors="ignore")
+                        if "initZenVoiceNav" not in raw_startup:
+                            marker = "this.isReady = true;"
+                            idx = raw_startup.find(marker)
+                            if idx != -1:
+                                raw_startup = raw_startup[:idx + len(marker)] + "\n" + ZEN_STARTUP_HOOK + raw_startup[idx + len(marker):]
+                                print("[*] Injected initZenVoiceNav lifecycle hook into ZenStartup.mjs delayedStartupFinished")
+                        zout.writestr(item, raw_startup.encode("utf-8"))
                     elif item.filename == "chrome/browser/content/browser/ZenPreloadedScripts.js":
                         raw_preloaded = zin.read(item.filename).decode("utf-8", errors="ignore")
-                        if "ZenVoiceNavParent.sys.mjs" not in raw_preloaded:
-                            marker = "let scripts = ["
-                            idx = raw_preloaded.find(marker)
-                            if idx != -1:
-                                script_inject = '\n    "resource:///actors/ZenVoiceNavParent.sys.mjs",'
-                                raw_preloaded = raw_preloaded[:idx + len(marker)] + script_inject + raw_preloaded[idx + len(marker):]
                         if "initZenVoiceNav" not in raw_preloaded:
                             end_brace = raw_preloaded.rfind("}")
                             if end_brace != -1:
-                                raw_preloaded = raw_preloaded[:end_brace] + ZEN_PRELOAD_HOOK + "\n}\n"
+                                hook = """
+  document.addEventListener("DOMContentLoaded", () => {
+    try {
+      const { initZenVoiceNav } = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+      if (typeof initZenVoiceNav === "function") {
+        initZenVoiceNav(window);
+      }
+    } catch (e) {
+      console.error("[zenKev] Error initializing ZenVoiceNav in window:", e);
+    }
+  }, { once: true });
+"""
+                                raw_preloaded = raw_preloaded[:end_brace] + hook + "\n}\n"
                                 print("[*] Injected initZenVoiceNav window startup hook in ZenPreloadedScripts.js")
                         zout.writestr(item, raw_preloaded.encode("utf-8"))
                     else:
