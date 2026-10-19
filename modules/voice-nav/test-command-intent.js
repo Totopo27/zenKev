@@ -91,7 +91,30 @@ const parsedWindow = parseIncomingVoicePayload(windowPayload);
 assert.equal(parsedWindow.action, "window_action");
 assert.equal(parsedWindow.params.operation, "new_private");
 
-// 4. Validar Fallback para texto plano heredado
+// 4. Validar Bookmark & Download Actions
+const bmPayload = JSON.stringify({
+  type: "command_intent",
+  action: "bookmark_action",
+  params: { operation: "save" },
+  raw_transcript: "guardar marcador",
+  confidence: 0.96,
+});
+const parsedBm = parseIncomingVoicePayload(bmPayload);
+assert.equal(parsedBm.action, "bookmark_action");
+assert.equal(parsedBm.params.operation, "save");
+
+const dlPayload = JSON.stringify({
+  type: "command_intent",
+  action: "download_action",
+  params: { operation: "open_panel" },
+  raw_transcript: "abrir descargas",
+  confidence: 0.95,
+});
+const parsedDl = parseIncomingVoicePayload(dlPayload);
+assert.equal(parsedDl.action, "download_action");
+assert.equal(parsedDl.params.operation, "open_panel");
+
+// 5. Validar Fallback para texto plano heredado
 const legacyPayload = parseIncomingVoicePayload("texto plano de prueba");
 assert.equal(legacyPayload.action, "legacy_raw");
 assert.equal(legacyPayload.raw_transcript, "texto plano de prueba");

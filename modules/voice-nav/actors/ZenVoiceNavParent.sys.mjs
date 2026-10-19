@@ -2635,6 +2635,86 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
         break;
       }
 
+      case "bookmark_action": {
+        const op = intent.params?.operation;
+        if (op === "save") {
+          try {
+            if (topWin?.PlacesCommandHook?.bookmarkPage) {
+              await topWin.PlacesCommandHook.bookmarkPage();
+            } else if (topWin?.BookmarkingUI?.star) {
+              topWin.BookmarkingUI.star.click();
+            }
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Página guardada en marcadores" });
+            return { success: true, action: "bookmark_save" };
+          } catch (e) {
+            showNativeChromeHUD(topWin, { success: false, transcript: intent.raw_transcript, label: "Error al guardar marcador" });
+            return { success: false, error: String(e) };
+          }
+        }
+        if (op === "remove") {
+          try {
+            if (topWin?.BookmarkingUI?.status === topWin?.BookmarkingUI?.STATUS_STARRED) {
+              topWin.BookmarkingUI.star?.click();
+            }
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Marcador eliminado" });
+            return { success: true, action: "bookmark_remove" };
+          } catch (e) {
+            showNativeChromeHUD(topWin, { success: false, transcript: intent.raw_transcript, label: "Error al quitar marcador" });
+            return { success: false, error: String(e) };
+          }
+        }
+        if (op === "toggle_sidebar") {
+          if (typeof topWin?.SidebarUI?.toggle === "function") {
+            topWin.SidebarUI.toggle("viewBookmarksSidebar");
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Marcadores" });
+          return { success: true, action: "bookmark_toggle_sidebar" };
+        }
+        if (op === "library") {
+          if (topWin?.PlacesCommandHook?.showPlacesOrganizer) {
+            topWin.PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Biblioteca de marcadores" });
+          return { success: true, action: "bookmark_library" };
+        }
+        if (op === "toggle_toolbar") {
+          const bar = topWin?.document?.getElementById("PersonalToolbar");
+          if (bar) {
+            bar.collapsed = !bar.collapsed;
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Barra de marcadores" });
+          return { success: true, action: "bookmark_toggle_toolbar" };
+        }
+        break;
+      }
+
+      case "download_action": {
+        const op = intent.params?.operation;
+        if (op === "open_panel") {
+          if (topWin?.BrowserCommands?.downloadsUI) {
+            topWin.BrowserCommands.downloadsUI();
+          } else if (topWin?.DownloadsPanel?.showDownloadsHistory) {
+            topWin.DownloadsPanel.showDownloadsHistory();
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Descargas" });
+          return { success: true, action: "download_open_panel" };
+        }
+        if (op === "open_library") {
+          openUrlInBrowser(topWin, "about:downloads");
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Biblioteca de descargas" });
+          return { success: true, action: "download_open_library" };
+        }
+        if (op === "clear") {
+          const dc = getDownloadsCommon();
+          if (dc?.getData && topWin) {
+            dc.getData(topWin).removeFinished();
+          }
+          showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Descargas limpiadas" });
+          return { success: true, action: "download_clear" };
+        }
+        break;
+      }
+
       default:
         return await this.processVoiceCommand(intent.raw_transcript || "");
     }

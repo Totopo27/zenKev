@@ -192,6 +192,81 @@ def resolve_command_intent(transcript: str, confidence: float = 1.0) -> Optional
             "confidence": confidence,
         }
 
+    # Control de Marcadores
+    if re.search(r"\b(?:marcar(?:\s+esta)?\s+p[aá]gina|guardar\s+(?:en\s+)?marcadores|guardar\s+marcador|a[nñ]adir\s+a\s+marcadores|agregar\s+a\s+marcadores)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "bookmark_action",
+            "params": {"operation": "save"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:eliminar|quitar|borrar|remover)\s+marcador(?:\s+de\s+(?:esta\s+)?p[aá]gina)?|desmarcar(?:\s+esta)?\s+p[aá]gina\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "bookmark_action",
+            "params": {"operation": "remove"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:abrir|mostrar|ver|alternar)\s+(?:los\s+)?marcadores|barra\s+lateral\s+de\s+marcadores|panel\s+de\s+marcadores\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "bookmark_action",
+            "params": {"operation": "toggle_sidebar"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:biblioteca|organizador|gestor)\s+de\s+marcadores\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "bookmark_action",
+            "params": {"operation": "library"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:barra\s+de\s+marcadores|mostrar\s+barra\s+de\s+marcadores|alternar\s+barra\s+de\s+marcadores)\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "bookmark_action",
+            "params": {"operation": "toggle_toolbar"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    # Control de Descargas
+    if re.search(r"\b(?:biblioteca|p[aá]gina|gestor)\s+de\s+descargas\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "download_action",
+            "params": {"operation": "open_library"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:limpiar|borrar|vaciar)\s+(?:las\s+)?descargas\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "download_action",
+            "params": {"operation": "clear"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+    if re.search(r"\b(?:abrir|mostrar|ver)?\s*(?:las\s+)?descargas|panel\s+de\s+descargas|mis\s+descargas\b", clean):
+        return {
+            "type": "command_intent",
+            "action": "download_action",
+            "params": {"operation": "open_panel"},
+            "raw_transcript": transcript,
+            "confidence": confidence,
+        }
+
+
 
     if re.search(r"\b(?:siguiente|pr[oó]xima)\s+pesta[ñn]a\b", clean):
         return {

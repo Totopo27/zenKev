@@ -210,6 +210,65 @@ def test_resolve_window_actions():
     }
 
 
+def test_resolve_bookmark_actions():
+    save_bm = resolve_command_intent("guardar marcador", confidence=0.96)
+    assert save_bm == {
+        "type": "command_intent",
+        "action": "bookmark_action",
+        "params": {"operation": "save"},
+        "raw_transcript": "guardar marcador",
+        "confidence": 0.96,
+    }
+
+    del_bm = resolve_command_intent("eliminar marcador", confidence=0.93)
+    assert del_bm == {
+        "type": "command_intent",
+        "action": "bookmark_action",
+        "params": {"operation": "remove"},
+        "raw_transcript": "eliminar marcador",
+        "confidence": 0.93,
+    }
+
+    toggle_bm = resolve_command_intent("panel de marcadores", confidence=0.94)
+    assert toggle_bm == {
+        "type": "command_intent",
+        "action": "bookmark_action",
+        "params": {"operation": "toggle_sidebar"},
+        "raw_transcript": "panel de marcadores",
+        "confidence": 0.94,
+    }
+
+
+def test_resolve_download_actions():
+    open_dl = resolve_command_intent("abrir descargas", confidence=0.95)
+    assert open_dl == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "open_panel"},
+        "raw_transcript": "abrir descargas",
+        "confidence": 0.95,
+    }
+
+    lib_dl = resolve_command_intent("biblioteca de descargas", confidence=0.92)
+    assert lib_dl == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "open_library"},
+        "raw_transcript": "biblioteca de descargas",
+        "confidence": 0.92,
+    }
+
+    clear_dl = resolve_command_intent("limpiar descargas", confidence=0.97)
+    assert clear_dl == {
+        "type": "command_intent",
+        "action": "download_action",
+        "params": {"operation": "clear"},
+        "raw_transcript": "limpiar descargas",
+        "confidence": 0.97,
+    }
+
+
+
 
 
 
