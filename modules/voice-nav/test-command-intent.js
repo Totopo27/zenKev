@@ -131,4 +131,16 @@ const legacyPayload = parseIncomingVoicePayload("texto plano de prueba");
 assert.equal(legacyPayload.action, "legacy_raw");
 assert.equal(legacyPayload.raw_transcript, "texto plano de prueba");
 
+// 7. Validar scroll amount y fail-safe determinista
+const scrollWithAmount = JSON.stringify({
+  type: "command_intent",
+  action: "scroll",
+  params: { direction: "down", amount: 500 },
+  raw_transcript: "baja 500",
+  confidence: 0.99,
+});
+const parsedScrollAmount = parseIncomingVoicePayload(scrollWithAmount);
+assert.equal(parsedScrollAmount.action, "scroll");
+assert.equal(parsedScrollAmount.params.amount, 500);
+
 console.log("✅ [TEST JS] Todos los tests de Command Intent pasaron exitosamente.");

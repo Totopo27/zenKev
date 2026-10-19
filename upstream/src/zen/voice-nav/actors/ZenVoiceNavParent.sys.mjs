@@ -2411,14 +2411,15 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
     switch (intent.action) {
       case "scroll": {
         const direction = intent.params?.direction === "up" ? "up" : "down";
-        await this.scroll(direction);
+        const amount = typeof intent.params?.amount === "number" ? intent.params.amount : null;
+        await this.scroll(direction, amount);
         showNativeChromeHUD(topWin, {
           success: true,
           transcript: intent.raw_transcript,
           label: `Scroll ${direction}`,
           latencyMs: 0.01,
         });
-        return { success: true, action: "scroll", direction };
+        return { success: true, action: "scroll", direction, amount };
       }
 
       case "click_badge": {
@@ -2689,10 +2690,9 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
       }
 
       default:
-        return await this.processVoiceCommand(intent.raw_transcript || "");
+        logDebug(`Command Intent no manejado: action=${intent.action}`);
+        return { success: false, error: "unhandled_intent", action: intent.action };
     }
-
-    return await this.processVoiceCommand(intent.raw_transcript || "");
   }
 
   /**
