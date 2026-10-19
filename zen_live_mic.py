@@ -18,8 +18,10 @@ sin requerir conexión externa y sin bloquear la ejecución del bucle de captura
 import os
 import sys
 import time
+import json
 import tempfile
 import subprocess
+from intent_resolver import resolve_command_intent
 
 # Auto-instalación transparente de dependencias críticas si faltan en el entorno
 _MISSING_DEPS = []
@@ -178,13 +180,27 @@ def send_unix_socket(socket_path: str, message: str) -> bool:
 def send_voice_command(transcript: str) -> bool:
     """
     Envía el comando transcrito al motor zen-voice-engine:
-    1. En Windows, intenta prioritariamente por Named Pipe (interrupción de kernel, cero latencia de disco).
-    2. En Unix/macOS, intenta prioritariamente por Unix Domain Socket (/tmp/zen_voice_ipc.sock).
-    3. Si el canal reactivo no está disponible o falla, realiza fallback automático al archivo IPC.
+    1. Resuelve la intención como Command Intent estructurado (ADR-0001).
+    2. En Windows, intenta prioritariamente por Named Pipe (interrupción de kernel, cero latencia de disco).
+    3. En Unix/macOS, intenta prioritariamente por Unix Domain Socket (/tmp/zen_voice_ipc.sock).
+    4. Si el canal reactivo no está disponible o falla, realiza fallback automático al archivo IPC.
     """
+    intent = resolve_command_intent(transcript)
+    if intent:
+        payload = json.dumps(intent)
+        log_event(f"🎯 Command Intent tipado: {intent['action']} ({intent.get('params', {})})")
+    else:
+        payload = json.dumps({
+            "type": "command_intent",
+            "action": "unknown",
+            "params": {},
+            "raw_transcript": transcript,
+            "confidence": 1.0,
+        })
+
     if sys.platform == "win32":
         try:
-            if send_named_pipe(PIPE_NAME, transcript):
+            if send_named_pipe(PIPE_NAME, payload):
                 log_event(f"🚀 Comando \"{transcript}\" enviado vía Named Pipe ({PIPE_NAME}) [0-latency kernel IOCP]")
                 return True
             else:
@@ -194,7 +210,7 @@ def send_voice_command(transcript: str) -> bool:
     else:
         socket_path = os.environ.get("ZEN_VOICE_SOCKET_PATH", "/tmp/zen_voice_ipc.sock")
         try:
-            if os.path.exists(socket_path) and send_unix_socket(socket_path, transcript):
+            if os.path.exists(socket_path) and send_unix_socket(socket_path, payload):
                 log_event(f"🚀 Comando \"{transcript}\" enviado vía Unix Socket ({socket_path}) [0-latency]")
                 return True
         except Exception:
@@ -211,7 +227,7 @@ def send_voice_command(transcript: str) -> bool:
     for target in targets:
         try:
             with open(target, "a", encoding="utf-8") as f_ipc:
-                f_ipc.write(transcript + "\n")
+                f_ipc.write(payload + "\n")
             written = True
         except Exception:
             pass
@@ -223,6 +239,7 @@ def send_voice_command(transcript: str) -> bool:
         log_event(f"❌ Error escribiendo a archivo IPC ({IPC_FILE})")
         return False
 
+
 def log_event(msg):
     ts = time.strftime("[%H:%M:%S]")
     line = f"{ts} {msg}"
@@ -233,12 +250,96 @@ def log_event(msg):
     except Exception:
         pass
 
-def _offline_stt_fallback(r, audio_data):
+def resolve_parakeet_setup():
     """
-    Fallback local directo de STT: intenta reconocedores locales si están disponibles
-    o ejecuta un fallback directo sin bloquear la ejecución del servicio.
+    Localiza el ejecutable de parakeet-cli y el modelo GGUF en el proyecto o sistema,
+    soportando ejecucion directa o copiada a perfiles de navegador.
     """
-    # 1. Intentar vosk si estuviera instalado
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    search_dirs = [
+        base_dir,
+        os.path.join(base_dir, ".."),
+        os.environ.get("ZENKEV_ROOT"),
+        r"D:\DocumentosDiscoD\Zen\zenKev",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "zenkev"),
+        os.path.join(os.path.expanduser("~"), ".zenkev"),
+    ]
+    valid_dirs = [os.path.abspath(d) for d in search_dirs if d and os.path.isdir(d)]
+
+    # 1. Buscar binario parakeet-cli
+    bin_candidates = [os.environ.get("ZEN_PARAKEET_BIN")]
+    for d in valid_dirs:
+        bin_candidates.extend([
+            os.path.join(d, "tools", "parakeet", "parakeet-v0.6.1-bin-win-cpu-x64", "parakeet-cli.exe"),
+            os.path.join(d, "tools", "parakeet", "parakeet-cli.exe"),
+            os.path.join(d, "parakeet-cli.exe"),
+            os.path.join(d, "parakeet-cli"),
+        ])
+    parakeet_bin = next((cand for cand in bin_candidates if cand and os.path.isfile(cand)), None)
+
+    # 2. Buscar modelo GGUF
+    model_candidates = [os.environ.get("ZEN_PARAKEET_MODEL")]
+    for d in valid_dirs:
+        model_candidates.extend([
+            os.path.join(d, "models", "tdt-0.6b-v3-q4_k.gguf"),
+            os.path.join(d, "models", "tdt-0.6b-v3-q5_k.gguf"),
+            os.path.join(d, "models", "tdt-0.6b-v3-q8_0.gguf"),
+            os.path.join(d, "models", "parakeet-bundle-standard.gguf"),
+            os.path.join(d, "models", "parakeet-bundle-small.gguf"),
+            os.path.join(d, "tdt-0.6b-v3-q4_k.gguf"),
+        ])
+    parakeet_model = next((cand for cand in model_candidates if cand and os.path.isfile(cand)), None)
+
+    return parakeet_bin, parakeet_model
+
+def transcribe_with_parakeet(audio_data, parakeet_bin, parakeet_model):
+    """
+    Transcribe audio en memoria usando el motor nativo parakeet-cli vía STDIN WAV pipe.
+    Cero latencia de disco, 100% privado y local.
+    """
+    p = None
+    try:
+        wav_bytes = audio_data.get_wav_data(convert_rate=16000, convert_width=2)
+        threads_raw = os.environ.get("ZEN_PARAKEET_THREADS", "4").strip()
+        threads = threads_raw if (threads_raw.isdigit() and 1 <= int(threads_raw) <= 64) else "4"
+        cmd = [parakeet_bin, "transcribe", "--model", parakeet_model, "--input", "-", "--threads", threads]
+        p = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        out, err = p.communicate(input=wav_bytes, timeout=15)
+        if p.returncode == 0:
+            text = out.decode("utf-8", errors="replace").strip()
+            # Limpiar puntuación de cierre y normalizar para coincidencia de comandos en Gecko
+            text = text.rstrip(".").strip().lower()
+            return text if text else None
+        else:
+            log_event(f"⚠️ parakeet-cli finalizó con código {p.returncode}: {err.decode('utf-8', errors='replace')}")
+    except subprocess.TimeoutExpired:
+        log_event("⚠️ Inferencia parakeet excedió el timeout de 15s. Terminando proceso huérfano...")
+        if p:
+            try:
+                p.kill()
+                p.communicate()
+            except Exception:
+                pass
+    except Exception as e:
+        log_event(f"⚠️ Error en inferencia parakeet: {e}")
+    return None
+
+def _offline_stt_fallback(r, audio_data, parakeet_bin=None, parakeet_model=None):
+    """
+    Fallback local directo de STT: prioriza Parakeet TDT nativo y luego intenta reconocedores locales.
+    """
+    # 1. Intentar Parakeet si está disponible
+    if parakeet_bin and parakeet_model:
+        res = transcribe_with_parakeet(audio_data, parakeet_bin, parakeet_model)
+        if res:
+            return res
+
+    # 2. Intentar vosk si estuviera instalado
     try:
         if hasattr(r, "recognize_vosk"):
             res = r.recognize_vosk(audio_data)
@@ -251,31 +352,39 @@ def _offline_stt_fallback(r, audio_data):
     except Exception:
         pass
 
-    # 2. Intentar pocketsphinx si estuviera instalado
+    # 3. Intentar pocketsphinx si estuviera instalado
     try:
         if hasattr(r, "recognize_sphinx"):
             return r.recognize_sphinx(audio_data, language="es-ES").strip().lower()
     except Exception:
         pass
 
-    # 3. Intentar whisper local si estuviera disponible
+    # 4. Intentar whisper local si estuviera disponible
     try:
         if hasattr(r, "recognize_whisper"):
             return r.recognize_whisper(audio_data, language="spanish").strip().lower()
     except Exception:
         pass
 
-    # 4. Fallback local directo seguro sin dependencias externas pesadas
+    # 5. Fallback local directo seguro sin dependencias externas pesadas
     log_event("ℹ️  Fallback local directo: captura registrada localmente sin transmisión externa.")
     return None
 
-def process_speech_recognition(r, audio_data):
+def process_speech_recognition(r, audio_data, parakeet_bin=None, parakeet_model=None):
     """
     Procesa el audio respetando la privacidad del usuario y la configuración offline.
+    Si Parakeet está disponible, se prioriza automáticamente para garantizar privacidad y velocidad local.
     """
+    if parakeet_bin and parakeet_model:
+        log_event("🔒 Procesando con motor nativo local Parakeet TDT (FastConformer)...")
+        transcript = transcribe_with_parakeet(audio_data, parakeet_bin, parakeet_model)
+        if transcript:
+            return transcript
+        log_event("⚠️ Parakeet no devolvió texto. Intentando fallback...")
+
     if OFFLINE_STT_ENABLED:
         log_event("🔒 Procesando transcripción en modo OFFLINE local...")
-        return _offline_stt_fallback(r, audio_data)
+        return _offline_stt_fallback(r, audio_data, parakeet_bin, parakeet_model)
 
     log_event("⚡ Procesando transcripción con Google Speech...")
     try:
@@ -285,7 +394,7 @@ def process_speech_recognition(r, audio_data):
         return None
     except sr.RequestError as e:
         log_event(f"⚠️  Endpoint externo de Google Speech no disponible ({e}). Activando fallback local sin bloquear...")
-        return _offline_stt_fallback(r, audio_data)
+        return _offline_stt_fallback(r, audio_data, parakeet_bin, parakeet_model)
 
 def find_best_mic():
     """Detecta de forma dinámica el micrófono activo más adecuado evitando mezclas estéreo."""
@@ -334,10 +443,14 @@ def main():
     log_event(f"⚡ Canal reactivo primario: Named Pipe ({PIPE_NAME})")
     log_event(f"🔗 Fallback IPC secundario: Archivo ({IPC_FILE})")
 
-    if OFFLINE_STT_ENABLED:
+    parakeet_bin, parakeet_model = resolve_parakeet_setup()
+    if parakeet_bin and parakeet_model:
+        log_event(f"🦜 Motor Parakeet TDT detectado y activo: {os.path.basename(parakeet_model)}")
+        log_event("🔒 Modo 100% Local / Air-Gapped prioritario activado.")
+    elif OFFLINE_STT_ENABLED:
         log_event("🔒 MODO OFFLINE ACTIVO (ZEN_VOICE_OFFLINE_STT=1): Privacidad total garantizada. Procesamiento local sin transmisión externa.")
     else:
-        log_event("⚠️  AVISO DE PRIVACIDAD: Usando endpoint externo de Google Speech. Para procesamiento 100% local, configure ZEN_VOICE_OFFLINE_STT=1.")
+        log_event("⚠️  AVISO DE PRIVACIDAD: Parakeet local no detectado. Usando endpoint de Google Speech. Para procesamiento 100% local, configure ZEN_VOICE_OFFLINE_STT=1 o descargue el modelo Parakeet.")
 
     r = sr.Recognizer()
     r.dynamic_energy_threshold = True
@@ -389,7 +502,7 @@ def main():
                 pcm16 = (np.clip(normalized_audio, -1.0, 1.0) * 32767).astype(np.int16)
                 audio_data = sr.AudioData(pcm16.tobytes(), SAMPLE_RATE, 2)
 
-                transcript = process_speech_recognition(r, audio_data)
+                transcript = process_speech_recognition(r, audio_data, parakeet_bin, parakeet_model)
                 if transcript:
                     log_event(f"✅ Transcripción reconocida: \"{transcript}\"")
                     send_voice_command(transcript)

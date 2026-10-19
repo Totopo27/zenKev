@@ -202,9 +202,9 @@ export class ZenVoiceEngineClient {
               await IOUtils.writeUTF8(ipcPath, "");
               const lines = content.split("\n");
               for (const line of lines) {
-                const transcript = line.trim();
-                if (transcript) {
-                  this.#dispatchLiveVoiceCommand(transcript);
+                const trimmed = line.trim();
+                if (trimmed) {
+                  this.#handleIncomingVoiceMessage(trimmed);
                 }
               }
             }
@@ -248,9 +248,11 @@ export class ZenVoiceEngineClient {
             const parsed = JSON.parse(trimmed);
 
             // Si es un comando de voz transcrito recibido en tiempo real por el motor
-            if (parsed.voice_command || parsed.type === "transcription_ready") {
-              const transcript = parsed.transcript || parsed.voice_command || parsed.text;
-              this.#dispatchLiveVoiceCommand(transcript);
+            if (parsed.voice_command || parsed.type === "transcription_ready" || parsed.type === "command_intent") {
+              const msg = (parsed.type === "command_intent")
+                ? parsed
+                : (parsed.transcript || parsed.voice_command || parsed.text);
+              this.#handleIncomingVoiceMessage(msg);
               continue;
             }
 
@@ -382,19 +384,122 @@ export class ZenVoiceEngineClient {
     }
   }
 
-            const nextResolver = this.#pendingRequests.shift();
-            if (nextResolver) {
-              nextResolver.resolve(parsed);
-            }
-          } catch (err) {
-            console.warn("[ZenVoiceEngineClient] Mensaje no parseable desde el motor:", trimmed, err);
+  /**
+   * Enruta el mensaje recibido, detectando si es un Command Intent estructurado (ADR-0001)
+   * o texto crudo heredado.
+   */
+  #handleIncomingVoiceMessage(msg) {
+    if (!msg) return;
+
+    let intent = null;
+    if (typeof msg === "object" && msg !== null && msg.type === "command_intent") {
+      intent = msg;
+    } else if (typeof msg === "string") {
+      const trimmed = msg.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && parsed.type === "command_intent") {
+            intent = parsed;
           }
+        } catch (_) {}
+      }
+    }
+
+    if (intent) {
+      this.#dispatchLiveCommandIntent(intent);
+    } else {
+      const transcript = typeof msg === "string" ? msg : (msg.transcript || JSON.stringify(msg));
+      this.#dispatchLiveVoiceCommand(transcript);
+    }
+  }
+
+  /**
+   * Despacha un Command Intent tipado directamente hacia el actor ZenVoiceNav sin parseo de regex.
+   */
+  async #dispatchLiveCommandIntent(intent) {
+    const transcript = intent.raw_transcript || intent.action;
+    logDebug(`Command Intent recibido: "${intent.action}" (${JSON.stringify(intent.params || {})})`);
+
+    const isMuted = Services.zenVoiceNavButtonState === "muted";
+    const isUnmuteIntent = intent.action === "voice_state" && intent.params?.state === "active";
+    if (isMuted && !isUnmuteIntent) {
+      logDebug(`Comando ignorado: la navegación por voz está silenciada.`);
+      return;
+    }
+
+    if (intent.action === "voice_state") {
+      const newState = intent.params?.state === "active" ? "listening" : "muted";
+      if (typeof Services.zenSetVoiceState === "function") {
+        Services.zenSetVoiceState(newState);
+      }
+      Services.zenVoiceNavButtonState = newState;
+      return;
+    }
+
+    if (typeof Services.zenSetVoiceState === "function") {
+      Services.zenSetVoiceState("processing");
+    }
+
+    const activeWin = Services.wm?.getMostRecentWindow("navigator:browser");
+    if (activeWin && typeof Services.zenShowVoiceHUD === "function") {
+      Services.zenShowVoiceHUD(activeWin, {
+        success: true,
+        transcript,
+        label: `Acción: ${intent.action}`,
+      });
+    }
+
+    try {
+      const windows = Services.wm.getEnumerator("navigator:browser");
+      let dispatched = false;
+      while (windows.hasMoreElements()) {
+        const win = windows.getNext();
+        if (!win || win.closed) continue;
+
+        const browser = win.gBrowser?.selectedBrowser;
+        const cwg = browser?.browsingContext?.currentWindowGlobal;
+        let actor = null;
+        try {
+          actor = cwg?.getActor("ZenVoiceNav");
+        } catch (_) {}
+
+        if (actor) {
+          if (typeof actor.processCommandIntent === "function") {
+            actor.processCommandIntent(intent).catch((e) => {
+              logDebug(`Error en actor.processCommandIntent: ${e}`);
+            }).finally(() => {
+              if (typeof Services.zenSetVoiceState === "function") {
+                Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+              }
+            });
+          } else {
+            actor.processVoiceCommand(transcript).catch((e) => {
+              logDebug(`Error en actor.processVoiceCommand: ${e}`);
+            }).finally(() => {
+              if (typeof Services.zenSetVoiceState === "function") {
+                Services.zenSetVoiceState(Services.zenVoiceNavButtonState === "muted" ? "muted" : "listening");
+              }
+            });
+          }
+          dispatched = true;
+          break;
+        }
+      }
+
+      if (!dispatched) {
+        const fallbackWin = activeWin || Services.wm?.getMostRecentWindow("navigator:browser");
+        if (fallbackWin) {
+          try {
+            const mod = ChromeUtils.importESModule("resource:///actors/ZenVoiceNavParent.sys.mjs");
+            if (mod?.executeGlobalVoiceCommand) {
+              mod.executeGlobalVoiceCommand(transcript, fallbackWin, null).catch(() => {});
+            }
+          } catch (_) {}
         }
       }
     } catch (e) {
-      console.error("[ZenVoiceEngineClient] Error en loop de lectura Stdio:", e);
-    } finally {
-      this.#cleanup();
+      logDebug(`Excepción al despachar intent: ${e}`);
     }
   }
 

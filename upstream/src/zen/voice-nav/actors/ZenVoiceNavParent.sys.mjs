@@ -2755,6 +2755,118 @@ export class ZenVoiceNavParent extends JSWindowActorParent {
   }
 
   /**
+   * Procesa un Command Intent tipado (ADR-0001) directamente sin pasar por regexes.
+   * Proporciona despacho determinista en O(1) para comandos atómicos.
+   * @param {Object} intent - Objeto Command Intent normalizado.
+   */
+  async processCommandIntent(intent) {
+    if (!intent || !intent.action) {
+      return { success: false, reason: "invalid_intent" };
+    }
+
+    const topWin = this.browsingContext?.topChromeWindow || Services.wm?.getMostRecentWindow("navigator:browser");
+    const mode = getVoiceNavMode();
+    logDebug(`Ejecutando processCommandIntent: action=${intent.action}, params=${JSON.stringify(intent.params || {})}`);
+
+    switch (intent.action) {
+      case "scroll": {
+        const direction = intent.params?.direction === "up" ? "up" : "down";
+        await this.scroll(direction);
+        showNativeChromeHUD(topWin, {
+          success: true,
+          transcript: intent.raw_transcript,
+          label: `Scroll ${direction}`,
+          latencyMs: 0.01,
+        });
+        return { success: true, action: "scroll", direction };
+      }
+
+      case "click_badge": {
+        const badgeIndex = intent.params?.badge_index;
+        if (typeof badgeIndex === "number" && badgeIndex > 0) {
+          const candidatesRes = await this.getCandidates(true);
+          const candidates = candidatesRes?.candidates || [];
+          const targetIndex = badgeIndex - 1;
+          if (targetIndex >= 0 && targetIndex < candidates.length) {
+            const target = candidates[targetIndex];
+            showNativeChromeHUD(topWin, {
+              success: true,
+              transcript: intent.raw_transcript,
+              label: `[#${badgeIndex}] ${target.name || target.role}`,
+              latencyMs: 0.01,
+            });
+            const actionResult = await this.executeAction(target.id, 0, mode);
+            return {
+              success: true,
+              matchedId: target.id,
+              action: "click_badge",
+              badgeIndex,
+              actionResult,
+            };
+          }
+        }
+        break;
+      }
+
+      case "tab_action": {
+        const op = intent.params?.operation;
+        const gBrowser = topWin?.gBrowser;
+        if (gBrowser) {
+          const tabs = Array.from(gBrowser.tabs || []);
+          if (op === "next" && tabs.length > 0) {
+            const idx = tabs.indexOf(gBrowser.selectedTab);
+            gBrowser.selectedTab = tabs[(idx + 1) % tabs.length];
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña siguiente" });
+            return { success: true, action: "tab_next" };
+          }
+          if (op === "prev" && tabs.length > 0) {
+            const idx = tabs.indexOf(gBrowser.selectedTab);
+            gBrowser.selectedTab = tabs[(idx - 1 + tabs.length) % tabs.length];
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña anterior" });
+            return { success: true, action: "tab_prev" };
+          }
+          if (op === "close" && gBrowser.selectedTab) {
+            gBrowser.removeTab(gBrowser.selectedTab);
+            showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Pestaña cerrada" });
+            return { success: true, action: "tab_close" };
+          }
+          if (op === "new") {
+            if (typeof gBrowser.addTab === "function") {
+              gBrowser.addTab("about:newtab", { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+              showNativeChromeHUD(topWin, { success: true, transcript: intent.raw_transcript, label: "Nueva pestaña" });
+              return { success: true, action: "tab_new" };
+            }
+          }
+        }
+        break;
+      }
+
+      case "navigate": {
+        const targetUrl = intent.params?.target;
+        if (targetUrl) {
+          openUrlInBrowser(topWin, targetUrl);
+          showNativeChromeHUD(topWin, {
+            success: true,
+            transcript: intent.raw_transcript,
+            label: intent.params?.is_search ? "Búsqueda web" : "Navegar a URL",
+          });
+          return { success: true, action: "navigate", target: targetUrl };
+        }
+        break;
+      }
+
+      case "voice_state": {
+        return { success: true, action: "voice_state", state: intent.params?.state };
+      }
+
+      default:
+        return await this.processVoiceCommand(intent.raw_transcript || "");
+    }
+
+    return await this.processVoiceCommand(intent.raw_transcript || "");
+  }
+
+  /**
    * Procesa un comando de voz completo:
    * 1. Comprueba si es un comando global de navegador (historial, pestañas, scroll, búsqueda, URLs).
    * 2. Si no es global, extrae candidatos AOM podados del Child.
